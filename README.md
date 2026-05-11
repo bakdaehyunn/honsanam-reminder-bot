@@ -45,7 +45,7 @@ honsanam-reminder pattern set --prefix "생활알림" --schedule-label "언제" 
 honsanam-reminder validate
 ```
 
-기본 알림은 켜기, 끄기, 수정이 가능합니다. 삭제는 사용자가 추가한 커스텀 알림만 가능합니다.
+기본 생활 루틴은 켜기, 끄기, 일정 수정이 가능하며, 필요한 루틴은 커스텀 알림으로 추가해 관리할 수 있습니다.
 
 ## AI 에이전트용 skill
 
