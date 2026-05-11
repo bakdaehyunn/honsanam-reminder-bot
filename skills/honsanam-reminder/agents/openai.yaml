@@ -1,0 +1,7 @@
+interface:
+  display_name: "혼사남 알림봇 CLI"
+  short_description: "혼사남 알림봇 CLI 운영 가이드"
+  default_prompt: "Use $honsanam-reminder to add or update a personal 생활 루틴 reminder with the CLI."
+
+policy:
+  allow_implicit_invocation: true

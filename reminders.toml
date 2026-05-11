@@ -1,0 +1,28 @@
+[haircut]
+enabled = true
+base_date = "2026-05-10"
+interval_months = 1
+notify_time = "08:45"
+weekend_policy = "previous_sunday"
+
+[nails]
+enabled = true
+base_date = "2026-05-10"
+fingernails_days = 7
+toenails_days = 21
+notify_time = "20:00"
+
+[trash]
+enabled = true
+weekdays = ["tue", "thu", "sun"]
+notify_time = "20:00"
+
+[mac_status]
+enabled = true
+weekday = "sat"
+notify_time = "10:00"
+
+[cleaning]
+enabled = true
+weekday = "sat"
+notify_time = "10:30"
