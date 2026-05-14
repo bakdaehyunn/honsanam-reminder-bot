@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+
+@dataclass(frozen=True)
+class TelegramChatCandidate:
+    chat_id: str
+    title: str
+    chat_type: str
 
 
 class TelegramClient:
@@ -12,6 +20,9 @@ class TelegramClient:
 
     def get_me(self) -> dict[str, object]:
         return self._api("getMe", {})
+
+    def get_updates(self) -> dict[str, object]:
+        return self._api("getUpdates", {"limit": "100"})
 
     def send_message(self, text: str) -> None:
         self._api(
@@ -40,3 +51,33 @@ class TelegramClient:
         if not isinstance(payload, dict) or not payload.get("ok"):
             raise RuntimeError(f"Telegram API failed: {payload}")
         return payload
+
+
+def discover_chat_candidates(payload: dict[str, object]) -> list[TelegramChatCandidate]:
+    result = payload.get("result", [])
+    if not isinstance(result, list):
+        return []
+
+    candidates: list[TelegramChatCandidate] = []
+    seen: set[str] = set()
+    for update in result:
+        if not isinstance(update, dict):
+            continue
+        for key in ("message", "edited_message", "channel_post", "edited_channel_post", "my_chat_member", "chat_member"):
+            event = update.get(key)
+            if not isinstance(event, dict):
+                continue
+            chat = event.get("chat")
+            if not isinstance(chat, dict):
+                continue
+            raw_chat_id = chat.get("id")
+            if raw_chat_id is None:
+                continue
+            chat_id = str(raw_chat_id)
+            if chat_id in seen:
+                continue
+            seen.add(chat_id)
+            chat_type = str(chat.get("type", ""))
+            title = str(chat.get("title") or chat.get("username") or chat.get("first_name") or chat_type or chat_id)
+            candidates.append(TelegramChatCandidate(chat_id=chat_id, title=title, chat_type=chat_type))
+    return candidates

@@ -73,6 +73,30 @@ def test_cli_pattern_set(tmp_path, monkeypatch, capsys) -> None:
     assert '"schedule_label": "시점"' in output
 
 
+def test_cli_discover_chat_prints_plain_latest_chat_id(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self) -> dict[str, object]:
+            return {
+                "ok": True,
+                "result": [
+                    {"message": {"chat": {"id": 123, "first_name": "Dae"}}},
+                    {"message": {"chat": {"id": -100456, "title": "생활알림방", "type": "group"}}},
+                ],
+            }
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.main(["discover-chat", "--plain"]) == 0
+    assert capsys.readouterr().out.strip() == "-100456"
+
+
 def test_cli_show_uses_effective_fixed_config(tmp_path, monkeypatch, capsys) -> None:
     settings = make_settings(tmp_path)
     monkeypatch.setattr(cli, "get_settings", lambda: settings)

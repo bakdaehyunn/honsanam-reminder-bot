@@ -31,7 +31,7 @@ from life_reminder.patterns import MessagePattern, load_pattern, update_pattern
 from life_reminder.rules import WEEKDAYS, Reminder, due_reminders, kst_datetime, parse_time, scheduled_reminders_near
 from life_reminder.schema import ValidationError
 from life_reminder.state import SentStore, file_lock
-from life_reminder.telegram import TelegramClient
+from life_reminder.telegram import TelegramClient, discover_chat_candidates
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,6 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="Create local config files")
 
     sub.add_parser("doctor", help="Check config and Telegram connectivity")
+
+    p_discover_chat = sub.add_parser("discover-chat", help="Find Telegram chat id from recent bot updates")
+    p_discover_chat.add_argument("--plain", action="store_true")
+    p_discover_chat.add_argument("--json", action="store_true")
 
     p_preview = sub.add_parser("preview", help="Preview reminders due at a specific KST time")
     p_preview.add_argument("--date", required=True)
@@ -113,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     if args.cmd == "doctor":
         return doctor_cmd(settings)
+    if args.cmd == "discover-chat":
+        return discover_chat_cmd(settings, plain=args.plain, json_output=args.json)
     if args.cmd == "preview":
         return preview_cmd(settings, args.date, args.time)
     if args.cmd == "run-once":
@@ -160,6 +166,34 @@ def doctor_cmd(settings: Settings) -> int:
     lines, ok = diagnose(settings, check_telegram=True)
     print("\n".join(lines))
     return 0 if ok else 1
+
+
+def discover_chat_cmd(settings: Settings, plain: bool, json_output: bool) -> int:
+    if not settings.telegram_bot_token:
+        print("[FAIL] TELEGRAM_BOT_TOKEN is empty")
+        return 1
+    try:
+        payload = TelegramClient(settings.telegram_bot_token, settings.telegram_reminder_chat_id).get_updates()
+        candidates = discover_chat_candidates(payload)
+    except Exception as exc:
+        print(f"[FAIL] Telegram getUpdates failed: {exc}")
+        return 1
+    if not candidates:
+        print("[FAIL] no Telegram chat found. Send a message to the bot, then run this command again.")
+        return 1
+    if json_output:
+        print(json.dumps([candidate.__dict__ for candidate in candidates], ensure_ascii=False, indent=2))
+        return 0
+    latest = candidates[-1]
+    if plain:
+        print(latest.chat_id)
+        return 0
+    print(f"chat_id: {latest.chat_id}")
+    if latest.title:
+        print(f"title: {latest.title}")
+    if latest.chat_type:
+        print(f"type: {latest.chat_type}")
+    return 0
 
 
 def diagnose(settings: Settings, check_telegram: bool) -> tuple[list[str], bool]:

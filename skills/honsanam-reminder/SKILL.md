@@ -1,6 +1,6 @@
 ---
 name: honsanam-reminder
-description: Use when managing the 혼사남 알림봇 project through its honsanam-reminder CLI, including setup, health checks, previews, scheduled sends, fixed reminder management, custom reminder CRUD, message pattern changes, validation, and launchd-oriented verification.
+description: Use when managing the 혼사남 알림봇 project through its honsanam-reminder CLI, including setup, Telegram chat discovery, health checks, previews, scheduled sends, fixed reminder management, custom reminder CRUD, message pattern changes, validation, and launchd-oriented verification.
 ---
 
 # Honsanam Reminder
@@ -42,6 +42,18 @@ honsanam-reminder doctor
 ```
 
 Use when setup, Telegram delivery, file permissions, or config health is uncertain. It may call Telegram `getMe` when a bot token is configured.
+
+### `discover-chat`
+
+Find the Telegram chat id from recent bot updates:
+
+```bash
+honsanam-reminder discover-chat
+honsanam-reminder discover-chat --plain
+honsanam-reminder discover-chat --json
+```
+
+Use during first setup after the user has sent any message to the bot. `--plain` prints only the latest chat id and is useful for setup scripts. This calls Telegram `getUpdates`, but does not send a message.
 
 ### `preview`
 
@@ -203,6 +215,7 @@ Change an existing routine:
 
 Verify delivery:
 
-1. Run `doctor`.
-2. Run `run-once --dry-run`.
-3. Ask for approval before `send-test` or `run-once`.
+1. Run `discover-chat` if the chat id is missing and the bot has received a message.
+2. Run `doctor`.
+3. Run `run-once --dry-run`.
+4. Ask for approval before `send-test` or `run-once`.
