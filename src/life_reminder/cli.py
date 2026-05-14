@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from life_reminder.config import (
@@ -27,8 +27,8 @@ from life_reminder.manager import (
     validate_management,
 )
 from life_reminder.messages import card
-from life_reminder.patterns import load_pattern, update_pattern
-from life_reminder.rules import WEEKDAYS, Reminder, due_reminders, kst_datetime, parse_time
+from life_reminder.patterns import MessagePattern, load_pattern, update_pattern
+from life_reminder.rules import WEEKDAYS, Reminder, due_reminders, kst_datetime, parse_time, scheduled_reminders_near
 from life_reminder.schema import ValidationError
 from life_reminder.state import SentStore, file_lock
 from life_reminder.telegram import TelegramClient
@@ -50,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--dry-run", action="store_true")
 
     sub.add_parser("send-test", help="Send one test message to the reminder chat")
+    p_next = sub.add_parser("next", help="Show upcoming reminders")
+    p_next.add_argument("--days", type=int, default=14)
+    p_next.add_argument("--json", action="store_true")
+
     p_list = sub.add_parser("list", help="List reminders")
     p_list.add_argument("--json", action="store_true")
 
@@ -115,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_once_cmd(settings, dry_run=args.dry_run)
     if args.cmd == "send-test":
         return send_test_cmd(settings)
+    if args.cmd == "next":
+        return next_cmd(settings, days=args.days, json_output=args.json)
     if args.cmd == "list":
         return list_cmd(settings, json_output=args.json)
     if args.cmd == "show":
@@ -283,6 +289,11 @@ def print_reminders(reminders: list[Reminder]) -> None:
         print(reminder.message)
 
 
+def print_upcoming(reminders: list[Reminder]) -> None:
+    for reminder in reminders:
+        print(f"{reminder.scheduled_at:%Y-%m-%d %H:%M}\t{reminder.title}\t{reminder.reminder_id}")
+
+
 def mac_status_if_needed(now: datetime, config: dict[str, object]) -> str:
     settings = config.get("mac_status", {})
     if not isinstance(settings, dict) or not settings.get("enabled", True):
@@ -300,19 +311,69 @@ def load_effective_config(settings: Settings) -> dict[str, object]:
     return merge_config(base, management)
 
 
+def next_cmd(settings: Settings, days: int, json_output: bool) -> int:
+    if days < 0:
+        print("[FAIL] days must be >= 0")
+        return 1
+    config = load_effective_config(settings)
+    pattern = load_pattern(settings.pattern_file)
+    now = datetime.now(ZoneInfo(settings.timezone)).replace(second=0, microsecond=0)
+    reminders = upcoming_reminders(now, config, days, pattern=pattern)
+    if json_output:
+        rows = [
+            {
+                "id": reminder.reminder_id,
+                "title": reminder.title,
+                "scheduled_at": reminder.scheduled_at.isoformat(),
+            }
+            for reminder in reminders
+        ]
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    if not reminders:
+        print("No upcoming reminders.")
+        return 0
+    print_upcoming(reminders)
+    return 0
+
+
+def upcoming_reminders(
+    start: datetime,
+    config: dict[str, object],
+    days: int,
+    pattern: MessagePattern | None = None,
+) -> list[Reminder]:
+    seen: set[str] = set()
+    reminders: list[Reminder] = []
+    for offset in range(days + 1):
+        current_date = (start + timedelta(days=offset)).date()
+        probe = datetime.combine(current_date, time(12, 0), tzinfo=start.tzinfo)
+        for reminder in scheduled_reminders_near(probe, config, mac_status_text="", pattern=pattern):
+            if reminder.scheduled_at.date() != current_date or reminder.scheduled_at < start:
+                continue
+            if reminder.sent_key in seen:
+                continue
+            seen.add(reminder.sent_key)
+            reminders.append(reminder)
+    return sorted(reminders, key=lambda reminder: reminder.scheduled_at)
+
+
 def list_cmd(settings: Settings, json_output: bool) -> int:
-    rows = list_reminders(load_management(settings.management_file))
+    management = load_management(settings.management_file)
+    rows = list_reminders(management, load_effective_config(settings))
     if json_output:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
         return 0
     for row in rows:
         status = "disabled" if row.get("enabled") is False else "enabled"
-        print(f"{row['id']}\t{row['type']}\t{status}")
+        title = row.get("title") or row["id"]
+        schedule = row.get("time") or "-"
+        print(f"{row['id']}\t{row['type']}\t{status}\t{schedule}\t{title}")
     return 0
 
 
 def show_cmd(settings: Settings, reminder_id: str, json_output: bool) -> int:
-    row = get_reminder(load_management(settings.management_file), reminder_id)
+    row = get_reminder(load_management(settings.management_file), reminder_id, load_effective_config(settings))
     if row is None:
         print(f"[FAIL] unknown reminder: {reminder_id}")
         return 1

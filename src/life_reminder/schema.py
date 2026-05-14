@@ -16,6 +16,16 @@ FIXED_IDS = {
     "mac-status",
     "weekend-cleaning",
 }
+FIXED_UPDATE_FIELDS = {
+    "haircut": {"enabled", "title", "action", "note", "time", "base_date"},
+    "fingernails": {"enabled", "title", "action", "note", "time", "base_date", "days"},
+    "toenails": {"enabled", "title", "action", "note", "time", "base_date", "days"},
+    "trash": {"enabled", "title", "action", "note", "time"},
+    "mac-status": {"enabled", "title", "action", "note", "time", "weekday"},
+    "weekend-cleaning": {"enabled", "title", "action", "note", "time", "weekday"},
+    "bedding-wash": {"enabled", "title", "action", "note", "time", "base_date", "days"},
+    "bathroom-cleaning": {"enabled", "title", "action", "note", "time", "base_date", "days"},
+}
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -82,12 +92,18 @@ def validate_custom(record: dict[str, object]) -> None:
 def validate_fixed_update(reminder_id: str, values: dict[str, object]) -> None:
     if reminder_id not in FIXED_IDS:
         raise ValidationError(f"unknown fixed reminder: {reminder_id}")
+    allowed = FIXED_UPDATE_FIELDS[reminder_id]
+    unknown = sorted(set(values) - allowed)
+    if unknown:
+        raise ValidationError(f"{reminder_id} does not support field(s): {', '.join(unknown)}")
     if "time" in values:
         validate_time(str(values["time"]))
     if "base_date" in values:
         validate_date(str(values["base_date"]))
     if "days" in values:
         validate_days(int(values["days"]))
+    if "weekday" in values:
+        validate_weekday(str(values["weekday"]))
     for key in ("title", "action", "note"):
         if key in values and not str(values[key]).strip():
             raise ValidationError(f"{key} must not be empty")

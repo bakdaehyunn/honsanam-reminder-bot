@@ -53,6 +53,17 @@ honsanam-reminder preview --date 2026-06-01 --time 08:45
 
 Use before changing schedules or explaining what will fire at a given time.
 
+### `next`
+
+Show upcoming reminders without sending:
+
+```bash
+honsanam-reminder next --days 14
+honsanam-reminder next --days 14 --json
+```
+
+Use when checking whether the default routines are distributed well or when explaining the upcoming schedule.
+
 ### `run-once`
 
 Evaluate reminders due now:
@@ -188,6 +199,7 @@ Change an existing routine:
 2. Run `update`, `enable`, or `disable`.
 3. Run `validate`.
 4. Use `preview` when schedule behavior matters.
+5. Use `next --days 14` when checking whether changes make reminders pile up.
 
 Verify delivery:
 

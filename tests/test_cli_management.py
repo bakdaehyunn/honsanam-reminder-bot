@@ -1,12 +1,14 @@
 from pathlib import Path
+import tomllib
 
 from life_reminder import cli
-from life_reminder.config import Settings
+from life_reminder.config import Settings, default_reminders_toml
+from life_reminder.rules import kst_datetime
 
 
 def make_settings(tmp_path: Path) -> Settings:
     reminders = tmp_path / "reminders.toml"
-    reminders.write_text("[haircut]\nenabled = true\n", encoding="utf-8")
+    reminders.write_text(default_reminders_toml(), encoding="utf-8")
     return Settings(
         telegram_bot_token="token",
         telegram_reminder_chat_id="-100",
@@ -69,3 +71,27 @@ def test_cli_pattern_set(tmp_path, monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert '"prefix": "알림"' in output
     assert '"schedule_label": "시점"' in output
+
+
+def test_cli_show_uses_effective_fixed_config(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert cli.main(["show", "bathroom-cleaning", "--json"]) == 0
+    output = capsys.readouterr().out
+    assert '"id": "bathroom-cleaning"' in output
+    assert '"title": "화장실 청소"' in output
+    assert '"time": "10:30"' in output
+    assert '"action": "화장실 청소하기"' in output
+    assert '"base_date": "2026-05-17"' in output
+
+
+def test_upcoming_reminders_lists_distributed_defaults() -> None:
+    config = tomllib.loads(default_reminders_toml())
+    reminders = cli.upcoming_reminders(kst_datetime("2026-05-16", "09:00"), config, 21)
+
+    scheduled = [(reminder.title, reminder.scheduled_at.isoformat()) for reminder in reminders]
+    assert ("맥북 상태점검", "2026-05-16T10:00:00+09:00") in scheduled
+    assert ("주말 청소", "2026-05-16T14:00:00+09:00") in scheduled
+    assert ("손톱 관리", "2026-05-20T21:00:00+09:00") in scheduled
+    assert ("화장실 청소", "2026-05-31T10:30:00+09:00") in scheduled

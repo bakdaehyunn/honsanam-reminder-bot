@@ -75,6 +75,13 @@ def test_bathroom_fixed_reminder_schedule_can_be_updated(tmp_path) -> None:
     assert config["bathroom"]["days"] == 14
 
 
+def test_fixed_reminder_rejects_unsupported_fields(tmp_path) -> None:
+    path = tmp_path / "reminders.json"
+
+    with pytest.raises(ValidationError, match="trash does not support"):
+        update_reminder(path, "trash", {"days": 14})
+
+
 @pytest.mark.parametrize(
     "record",
     [

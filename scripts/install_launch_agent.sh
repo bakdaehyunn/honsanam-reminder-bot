@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/Users/hennei/workspace/honsanam-reminder-bot"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLIST="$HOME/Library/LaunchAgents/com.hennei.honsanam-reminder-bot.plist"
 
 mkdir -p "$HOME/Library/LaunchAgents" "$ROOT/.local/logs"
