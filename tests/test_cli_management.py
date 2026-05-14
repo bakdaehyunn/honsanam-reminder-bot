@@ -1,8 +1,10 @@
 from pathlib import Path
 import tomllib
 
+import pytest
+
 from life_reminder import cli
-from life_reminder.config import Settings, default_reminders_toml
+from life_reminder.config import Settings, default_reminders_toml, load_env
 from life_reminder.rules import kst_datetime
 
 
@@ -95,6 +97,148 @@ def test_cli_discover_chat_prints_plain_latest_chat_id(tmp_path, monkeypatch, ca
 
     assert cli.main(["discover-chat", "--plain"]) == 0
     assert capsys.readouterr().out.strip() == "-100456"
+
+
+def test_cli_setup_help_is_available(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["setup", "--help"])
+
+    assert exc.value.code == 0
+    assert "usage: honsanam-reminder setup" in capsys.readouterr().out
+
+
+def test_setup_non_interactive_writes_env_without_printing_secret(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_me(self) -> dict[str, object]:
+            return {"ok": True, "result": {"username": "honsanam_bot"}}
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert (
+        cli.setup_cmd(
+            settings,
+            dry_run=False,
+            non_interactive=True,
+            telegram_bot_token="secret-token",
+            telegram_chat_id="-100123",
+            timezone="Asia/Seoul",
+            install_launchd=False,
+        )
+        == 0
+    )
+
+    env = load_env(settings.env_file)
+    assert env["TELEGRAM_BOT_TOKEN"] == "secret-token"
+    assert env["TELEGRAM_REMINDER_CHAT_ID"] == "-100123"
+    assert env["LIFE_REMINDER_TIMEZONE"] == "Asia/Seoul"
+    assert "secret-token" not in capsys.readouterr().out
+
+
+def test_setup_non_interactive_discovers_chat_id(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self) -> dict[str, object]:
+            return {"ok": True, "result": [{"message": {"chat": {"id": -100456, "title": "생활알림방"}}}]}
+
+        def get_me(self) -> dict[str, object]:
+            return {"ok": True, "result": {"username": "honsanam_bot"}}
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert (
+        cli.setup_cmd(
+            settings,
+            dry_run=False,
+            non_interactive=True,
+            telegram_bot_token="secret-token",
+            telegram_chat_id=None,
+            timezone="Asia/Seoul",
+            install_launchd=False,
+        )
+        == 0
+    )
+
+    assert load_env(settings.env_file)["TELEGRAM_REMINDER_CHAT_ID"] == "-100456"
+
+
+def test_setup_non_interactive_can_install_launchd_when_requested(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    calls: list[tuple[Path, bool]] = []
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_me(self) -> dict[str, object]:
+            return {"ok": True, "result": {"username": "honsanam_bot"}}
+
+    def fake_install_launch_agent(root: Path, dry_run: bool) -> int:
+        calls.append((root, dry_run))
+        return 0
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+    monkeypatch.setattr(cli, "install_launch_agent", fake_install_launch_agent)
+    monkeypatch.setattr(cli.sys, "platform", "darwin")
+
+    assert (
+        cli.setup_cmd(
+            settings,
+            dry_run=False,
+            non_interactive=True,
+            telegram_bot_token="secret-token",
+            telegram_chat_id="-100123",
+            timezone="Asia/Seoul",
+            install_launchd=True,
+        )
+        == 0
+    )
+    assert calls == [(tmp_path, False)]
+
+
+def test_setup_non_interactive_fails_when_chat_id_is_missing(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self) -> dict[str, object]:
+            return {"ok": True, "result": []}
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert (
+        cli.setup_cmd(
+            settings,
+            dry_run=False,
+            non_interactive=True,
+            telegram_bot_token="secret-token",
+            telegram_chat_id=None,
+            timezone="Asia/Seoul",
+            install_launchd=False,
+        )
+        == 1
+    )
+    assert "Telegram reminder chat id is required" in capsys.readouterr().out
+
+
+def test_prompt_setup_value_keeps_existing_value_on_empty_input(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+
+    assert cli.prompt_setup_value("Timezone", "Asia/Seoul", secret=False) == "Asia/Seoul"
 
 
 def test_cli_show_uses_effective_fixed_config(tmp_path, monkeypatch, capsys) -> None:

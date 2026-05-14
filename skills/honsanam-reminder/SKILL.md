@@ -33,6 +33,18 @@ honsanam-reminder init
 
 Use for first setup or to restore missing default files. It creates `.env.example`, `.env`, `reminders.toml`, and `.local/` subdirectories when missing.
 
+### `setup`
+
+Configure local env values, Telegram chat discovery, checks, upcoming reminders, and optional launchd install:
+
+```bash
+honsanam-reminder setup
+honsanam-reminder setup --dry-run
+honsanam-reminder setup --non-interactive --telegram-bot-token "$TOKEN" --telegram-chat-id "$CHAT_ID" --timezone Asia/Seoul
+```
+
+Use this as the standard first setup or reconfiguration command after the CLI is installed. It does not send a Telegram test message; ask for approval before running `send-test`.
+
 ### `doctor`
 
 Check runtime configuration and Telegram connectivity:
@@ -53,7 +65,7 @@ honsanam-reminder discover-chat --plain
 honsanam-reminder discover-chat --json
 ```
 
-Use during first setup after the user has sent any message to the bot. `--plain` prints only the latest chat id and is useful for setup scripts. This calls Telegram `getUpdates`, but does not send a message.
+Use as a helper when only the Telegram chat id is needed. `setup` uses the same discovery behavior. `--plain` prints only the latest chat id and is useful for scripts. This calls Telegram `getUpdates`, but does not send a message.
 
 ### `preview`
 
@@ -215,7 +227,7 @@ Change an existing routine:
 
 Verify delivery:
 
-1. Run `discover-chat` if the chat id is missing and the bot has received a message.
+1. Run `setup` for first setup or reconfiguration.
 2. Run `doctor`.
 3. Run `run-once --dry-run`.
 4. Ask for approval before `send-test` or `run-once`.

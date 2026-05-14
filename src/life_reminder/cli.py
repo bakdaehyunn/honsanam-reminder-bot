@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import subprocess
 import sys
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from life_reminder.config import (
@@ -11,6 +14,7 @@ from life_reminder.config import (
     ROOT,
     Settings,
     get_settings,
+    load_env,
     load_reminders,
     write_default_files,
 )
@@ -39,6 +43,14 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_init = sub.add_parser("init", help="Create local config files")
+
+    p_setup = sub.add_parser("setup", help="Configure local env and setup checks")
+    p_setup.add_argument("--dry-run", action="store_true")
+    p_setup.add_argument("--non-interactive", action="store_true")
+    p_setup.add_argument("--telegram-bot-token")
+    p_setup.add_argument("--telegram-chat-id")
+    p_setup.add_argument("--timezone")
+    p_setup.add_argument("--install-launchd", action="store_true")
 
     sub.add_parser("doctor", help="Check config and Telegram connectivity")
 
@@ -115,6 +127,16 @@ def main(argv: list[str] | None = None) -> int:
         return init_cmd()
 
     settings = get_settings()
+    if args.cmd == "setup":
+        return setup_cmd(
+            settings,
+            dry_run=args.dry_run,
+            non_interactive=args.non_interactive,
+            telegram_bot_token=args.telegram_bot_token,
+            telegram_chat_id=args.telegram_chat_id,
+            timezone=args.timezone,
+            install_launchd=args.install_launchd,
+        )
     if args.cmd == "doctor":
         return doctor_cmd(settings)
     if args.cmd == "discover-chat":
@@ -159,6 +181,175 @@ def init_cmd() -> int:
             print(f"created {path}")
     else:
         print("nothing to create")
+    return 0
+
+
+def setup_cmd(
+    settings: Settings,
+    dry_run: bool,
+    non_interactive: bool,
+    telegram_bot_token: str | None,
+    telegram_chat_id: str | None,
+    timezone: str | None,
+    install_launchd: bool,
+) -> int:
+    print("==> Creating default project files")
+    if dry_run:
+        print(f"[dry-run] ensure default files under {settings.root}")
+    else:
+        try:
+            created = write_default_files(settings.root)
+        except Exception as exc:
+            print(f"[FAIL] setup failed: {exc}")
+            return 1
+        if created:
+            for path in created:
+                print(f"created {path}")
+        else:
+            print("nothing to create")
+
+    env = load_env(settings.env_file)
+    token = choose_setup_value(
+        label="Telegram bot token",
+        current=env.get("TELEGRAM_BOT_TOKEN", ""),
+        provided=telegram_bot_token,
+        secret=True,
+        non_interactive=non_interactive,
+    )
+    tz = choose_setup_value(
+        label="Timezone",
+        current=env.get("LIFE_REMINDER_TIMEZONE", "Asia/Seoul") or "Asia/Seoul",
+        provided=timezone,
+        secret=False,
+        non_interactive=non_interactive,
+    )
+    chat_id = telegram_chat_id or env.get("TELEGRAM_REMINDER_CHAT_ID", "")
+
+    if not token:
+        print("[FAIL] Telegram bot token is required")
+        return 1
+    if not tz:
+        print("[FAIL] timezone is required")
+        return 1
+
+    if not chat_id:
+        chat_id = discover_chat_for_setup(token, dry_run=dry_run, non_interactive=non_interactive)
+    if not chat_id and not non_interactive:
+        chat_id = prompt_setup_value("Telegram reminder chat id", "", secret=True)
+    if not chat_id:
+        print("[FAIL] Telegram reminder chat id is required")
+        return 1
+
+    print("==> Writing configuration")
+    if dry_run:
+        print(f"[dry-run] write {settings.env_file}")
+    else:
+        write_setup_env(settings.env_file, token, chat_id, tz)
+
+    configured = get_settings(settings.env_file)
+    print("==> Checking configuration")
+    if dry_run:
+        print("[dry-run] honsanam-reminder doctor")
+    else:
+        doctor_cmd(configured)
+
+    print("==> Upcoming reminders")
+    if dry_run:
+        print("[dry-run] honsanam-reminder next --days 14")
+    else:
+        next_cmd(configured, days=14, json_output=False)
+
+    if sys.platform == "darwin":
+        should_install_launchd = install_launchd
+        if not non_interactive and not install_launchd:
+            should_install_launchd = ask_yes_no("Install macOS automatic launchd schedule?", default=False)
+        if should_install_launchd:
+            launchd_status = install_launch_agent(settings.root, dry_run=dry_run)
+            if launchd_status != 0:
+                return launchd_status
+        else:
+            print("skipped launchd install")
+
+    print("setup complete")
+    print("Run `honsanam-reminder send-test` when you want to verify Telegram delivery.")
+    return 0
+
+
+def choose_setup_value(
+    label: str,
+    current: str,
+    provided: str | None,
+    secret: bool,
+    non_interactive: bool,
+) -> str:
+    if provided is not None:
+        return provided.strip()
+    if non_interactive:
+        return current.strip()
+    return prompt_setup_value(label, current, secret=secret)
+
+
+def prompt_setup_value(label: str, current: str, secret: bool) -> str:
+    if current:
+        prompt = f"{label} [configured]: " if secret else f"{label} [{current}]: "
+    else:
+        prompt = f"{label}: "
+    if secret:
+        value = getpass.getpass(prompt)
+    else:
+        value = input(prompt)
+    return current if not value else value.strip()
+
+
+def write_setup_env(env_file: Path, token: str, chat_id: str, timezone: str) -> None:
+    env_file.write_text(
+        f"TELEGRAM_BOT_TOKEN={token}\n"
+        f"TELEGRAM_REMINDER_CHAT_ID={chat_id}\n"
+        f"LIFE_REMINDER_TIMEZONE={timezone}\n",
+        encoding="utf-8",
+    )
+
+
+def discover_chat_for_setup(token: str, dry_run: bool, non_interactive: bool) -> str:
+    print("Telegram chat id can be found automatically after the bot receives one message.")
+    if dry_run:
+        print("[dry-run] honsanam-reminder discover-chat --plain")
+        return ""
+    if not non_interactive and not ask_yes_no("Try chat id auto discovery?", default=True):
+        return ""
+    if not non_interactive:
+        input("Send any message to your Telegram bot, then press Enter here.")
+    try:
+        payload = TelegramClient(token, "").get_updates()
+        candidates = discover_chat_candidates(payload)
+    except Exception as exc:
+        print(f"could not find chat id automatically: {exc}")
+        return ""
+    if not candidates:
+        print("could not find chat id automatically")
+        return ""
+    print("found Telegram reminder chat id")
+    return candidates[-1].chat_id
+
+
+def ask_yes_no(question: str, default: bool) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+    answer = input(f"{question} {suffix}: ").strip().lower()
+    if not answer:
+        return default
+    return answer in {"y", "yes"}
+
+
+def install_launch_agent(root: Path, dry_run: bool) -> int:
+    script = root / "scripts/install_launch_agent.sh"
+    if dry_run:
+        print(f"[dry-run] {script}")
+        return 0
+    try:
+        subprocess.run([str(script)], check=True)
+    except subprocess.CalledProcessError as exc:
+        print(f"[FAIL] launchd install failed: {exc}")
+        return 1
     return 0
 
 
