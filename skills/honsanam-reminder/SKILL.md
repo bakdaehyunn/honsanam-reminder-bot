@@ -7,6 +7,10 @@ description: Use when managing the 혼사남 알림봇 project through its honsa
 
 Use this skill to operate the `honsanam-reminder` CLI for 혼사남 알림봇. The CLI is the supported interface for routine changes; avoid editing `.local/config/*.json` directly unless the CLI cannot express the requested change.
 
+Fixed reminder IDs: `haircut`, `fingernails`, `toenails`, `trash`, `mac-status`, `weekend-cleaning`, `bedding-wash`, `bathroom-cleaning`.
+
+Default schedule philosophy: avoid piling reminders into one day or time block. Prefer small, separated routines that are easy to act on one at a time.
+
 ## Operating Rules
 
 - Work from the project root: `/Users/hennei/workspace/honsanam-reminder-bot`.
@@ -122,7 +126,7 @@ honsanam-reminder add custom --id water-plants --title "화분 물주기" --kind
 Interval:
 
 ```bash
-honsanam-reminder add custom --id bedding-wash --title "이불 빨래" --kind interval --base-date 2026-05-10 --days 14 --time 10:00 --action "이불 빨래하기"
+honsanam-reminder add custom --id towel-wash --title "수건 세탁" --kind interval --base-date 2026-05-10 --days 7 --time 10:00 --action "수건 세탁하기"
 ```
 
 Optional: add `--note "..."` for extra message detail. Run `validate` after adding.
@@ -153,7 +157,7 @@ Inspect or update message labels:
 
 ```bash
 honsanam-reminder pattern show
-honsanam-reminder pattern set --prefix "생활알림" --schedule-label "언제" --action-label "해야 할 일" --note-label "확인할 점"
+honsanam-reminder pattern set --prefix "생활알림" --schedule-label "언제" --action-label "해야 할 일" --note-label "관리 포인트"
 ```
 
 Use when the user wants message wording or labels changed globally. Run `preview` afterward to inspect a rendered message.

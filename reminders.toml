@@ -7,15 +7,18 @@ weekend_policy = "previous_sunday"
 
 [nails]
 enabled = true
-base_date = "2026-05-10"
+base_date = "2026-05-13"
 fingernails_days = 7
 toenails_days = 21
-notify_time = "20:00"
+notify_time = "21:00"
 
 [trash]
 enabled = true
 weekdays = ["tue", "thu", "sun"]
 notify_time = "20:00"
+note = """오늘 23:00쯤 수거 예정입니다.
+종량제 봉투와 음식물 봉투 여유분도 확인해 주세요.
+재활용품은 비우고 헹구면 뒤처리가 편합니다."""
 
 [mac_status]
 enabled = true
@@ -25,4 +28,22 @@ notify_time = "10:00"
 [cleaning]
 enabled = true
 weekday = "sat"
+notify_time = "14:00"
+note = """바닥, 책상, 설거지, 쓰레기부터 정리하기
+집이 정리되면 주말이 덜 밀립니다."""
+
+[bedding]
+enabled = true
+base_date = "2026-05-24"
+days = 14
+notify_time = "14:00"
+note = """이불 커버와 베개 커버도 같이 확인하기
+잠자리가 산뜻하면 잠도 편합니다."""
+
+[bathroom]
+enabled = true
+base_date = "2026-05-17"
+days = 14
 notify_time = "10:30"
+note = """변기, 세면대, 배수구부터 정리하기
+화장실은 미루면 바로 티 납니다."""

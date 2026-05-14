@@ -70,7 +70,7 @@ def scheduled_reminders_near(
         "mac-status",
         "맥북 상태점검",
         "맥북 상태 확인",
-        mac_status_text or "상태 수집 결과가 없습니다.",
+        mac_status_default_note(mac_status_text),
         tz,
         pattern,
     )
@@ -81,13 +81,37 @@ def scheduled_reminders_near(
         config.get("cleaning", {}),
         "weekend-cleaning",
         "주말 청소",
-        "주말 청소 루틴",
-        "청소기, 책상 정리, 쓰레기 정리 확인",
+        "주말 청소 루틴 진행하기",
+        fixed_weekly_default_note("weekend-cleaning"),
         tz,
         pattern,
     )
     if cleaning:
         items.append(cleaning)
+    bedding = interval_reminder(
+        now,
+        config.get("bedding", {}),
+        "bedding-wash",
+        "이불 빨래",
+        "이불 빨래하기",
+        bedding_default_note,
+        tz,
+        pattern,
+    )
+    if bedding:
+        items.append(bedding)
+    bathroom = interval_reminder(
+        now,
+        config.get("bathroom", {}),
+        "bathroom-cleaning",
+        "화장실 청소",
+        "화장실 청소하기",
+        bathroom_default_note,
+        tz,
+        pattern,
+    )
+    if bathroom:
+        items.append(bathroom)
     items.extend(custom_reminders(now, config.get("custom", []), tz, pattern))
     return items
 
@@ -115,7 +139,7 @@ def haircut_reminders(now: datetime, settings: dict[str, Any], tz: object, patte
                     str(settings.get("title") or "미용실 예약"),
                     f"{format_date_ko(haircut_day)} 헤어컷 예정",
                     str(settings.get("action") or "오늘 미용실 예약하기"),
-                    str(settings.get("note") or haircut_note(candidate, haircut_day, notify_day)),
+                    str(settings.get("note") or haircut_note()),
                     pattern,
                 ),
             )
@@ -144,7 +168,7 @@ def nail_reminders(now: datetime, settings: dict[str, Any], tz: object, pattern:
                     title,
                     f"손톱 {fingernails_days}일 주기",
                     str(settings.get("fingernails_action") or "손톱 자르기"),
-                    str(settings.get("fingernails_note") or ""),
+                    str(settings.get("fingernails_note") or fingernails_default_note()),
                     pattern,
                 ),
             )
@@ -160,7 +184,7 @@ def nail_reminders(now: datetime, settings: dict[str, Any], tz: object, pattern:
                     title,
                     f"발톱 {toenails_days}일 주기",
                     str(settings.get("toenails_action") or "발톱 자르기"),
-                    str(settings.get("toenails_note") or ""),
+                    str(settings.get("toenails_note") or toenails_default_note()),
                     pattern,
                 ),
             )
@@ -183,9 +207,37 @@ def trash_reminder(now: datetime, settings: dict[str, Any], tz: object, pattern:
             str(settings.get("title") or "분리수거"),
             f"{format_date_ko(now.date())} {scheduled:%H:%M}",
             str(settings.get("action") or "오늘 분리수거 내놓기"),
-            str(settings.get("note") or "화/목/일 11시 수거 기준"),
+            str(settings.get("note") or trash_default_note()),
             pattern,
         ),
+    )
+
+
+def trash_default_note() -> str:
+    return "\n".join(
+        [
+            "오늘 23:00쯤 수거 예정입니다.",
+            "종량제 봉투와 음식물 봉투 여유분도 확인해 주세요.",
+            "재활용품은 비우고 헹구면 뒤처리가 편합니다.",
+        ]
+    )
+
+
+def fingernails_default_note() -> str:
+    return "\n".join(
+        [
+            "손톱 끝만 깔끔하게 정리하기",
+            "손 볼 때 생각보다 티 납니다.",
+        ]
+    )
+
+
+def toenails_default_note() -> str:
+    return "\n".join(
+        [
+            "길어지기 전에 미리 정리하기",
+            "양말 신을 때 거슬리기 전에 정리해 주세요.",
+        ]
     )
 
 
@@ -194,8 +246,8 @@ def weekly_reminder(
     settings: dict[str, Any],
     reminder_id: str,
     title: str,
-    schedule: str,
-    action: str,
+    default_action: str,
+    default_note: str,
     tz: object,
     pattern: MessagePattern,
 ) -> Reminder | None:
@@ -213,10 +265,89 @@ def weekly_reminder(
         message=card(
             title,
             f"{format_date_ko(now.date())} {scheduled:%H:%M}",
-            str(settings.get("action") or action),
-            str(settings.get("note") or ""),
+            str(settings.get("action") or default_action),
+            str(settings.get("note") or default_note),
             pattern,
         ),
+    )
+
+
+def interval_reminder(
+    now: datetime,
+    settings: dict[str, Any],
+    reminder_id: str,
+    title: str,
+    action: str,
+    default_note_func: Any,
+    tz: object,
+    pattern: MessagePattern,
+) -> Reminder | None:
+    if not settings.get("enabled", True):
+        return None
+    base = parse_date(str(settings.get("base_date", "2026-05-10")))
+    days = int(settings.get("days", 14))
+    if days < 1:
+        return None
+    days_since = (now.date() - base).days
+    if days_since < 0 or days_since % days != 0:
+        return None
+    scheduled = datetime.combine(now.date(), parse_time(str(settings.get("notify_time", "11:00"))), tzinfo=tz)
+    title = str(settings.get("title") or title)
+    return Reminder(
+        reminder_id=f"{reminder_id}-{now.date().isoformat()}",
+        scheduled_at=scheduled,
+        title=title,
+        message=card(
+            title,
+            f"{days}일 주기, {format_date_ko(now.date())} {scheduled:%H:%M}",
+            str(settings.get("action") or action),
+            str(settings.get("note") or default_note_func()),
+            pattern,
+        ),
+    )
+
+
+def fixed_weekly_default_note(reminder_id: str) -> str:
+    if reminder_id == "weekend-cleaning":
+        return "\n".join(
+            [
+                "바닥, 책상, 설거지, 쓰레기부터 정리하기",
+                "집이 정리되면 주말이 덜 밀립니다.",
+            ]
+        )
+    return ""
+
+
+def mac_status_default_note(status_text: str) -> str:
+    lines = []
+    if status_text:
+        lines.append(status_text)
+    else:
+        lines.append("상태 수집 결과가 없습니다.")
+    lines.extend(
+        [
+            "배터리, 저장공간, 업데이트 상태 확인하기",
+            "오래 켜져 있으면 재부팅 한 번 해 주세요.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def bedding_default_note() -> str:
+    return "\n".join(
+        [
+            "이불 커버와 베개 커버도 같이 확인하기",
+            "잠자리가 산뜻하면 잠도 편합니다.",
+        ]
+    )
+
+
+def bathroom_default_note() -> str:
+    return "\n".join(
+        [
+            "변기, 세면대, 배수구부터 정리하기",
+            "화장실은 미루면 바로 티 납니다.",
+        ]
     )
 
 
@@ -297,14 +428,11 @@ def apply_haircut_weekend_policy(value: date, policy: str) -> date:
     return value
 
 
-def haircut_note(candidate: date, haircut_day: date, notify_day: date) -> str:
-    if candidate == haircut_day:
-        return f"기준일: {format_date_ko(candidate)}\n조정: 주말이라 그대로 진행"
+def haircut_note() -> str:
     return "\n".join(
         [
-            f"기준일: {format_date_ko(candidate)}",
-            f"조정: 평일 -> 직전 일요일 {format_date_ko(haircut_day)}",
-            f"예약 알림: {format_date_ko(notify_day)} 08:45",
+            "이번 주 가능한 시간 먼저 확인하기",
+            "머리만 정리해도 인상이 꽤 달라집니다.",
         ]
     )
 

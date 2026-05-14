@@ -4,6 +4,7 @@ from life_reminder.manager import (
     add_custom,
     get_reminder,
     load_management,
+    merge_config,
     remove_reminder,
     set_enabled,
     update_reminder,
@@ -50,6 +51,28 @@ def test_fixed_reminder_can_be_disabled_but_not_removed(tmp_path) -> None:
     assert row["enabled"] is False
     with pytest.raises(ValidationError):
         remove_reminder(path, "trash")
+
+
+def test_bedding_fixed_reminder_schedule_can_be_updated(tmp_path) -> None:
+    path = tmp_path / "reminders.json"
+
+    update_reminder(path, "bedding-wash", {"time": "12:00", "base_date": "2026-05-11", "days": 21})
+
+    config = merge_config({"bedding": {"enabled": True, "base_date": "2026-05-10", "days": 14, "notify_time": "11:00"}}, load_management(path))
+    assert config["bedding"]["notify_time"] == "12:00"
+    assert config["bedding"]["base_date"] == "2026-05-11"
+    assert config["bedding"]["days"] == 21
+
+
+def test_bathroom_fixed_reminder_schedule_can_be_updated(tmp_path) -> None:
+    path = tmp_path / "reminders.json"
+
+    update_reminder(path, "bathroom-cleaning", {"time": "09:30", "base_date": "2026-05-12", "days": 14})
+
+    config = merge_config({"bathroom": {"enabled": True, "base_date": "2026-05-11", "days": 14, "notify_time": "10:30"}}, load_management(path))
+    assert config["bathroom"]["notify_time"] == "09:30"
+    assert config["bathroom"]["base_date"] == "2026-05-12"
+    assert config["bathroom"]["days"] == 14
 
 
 @pytest.mark.parametrize(

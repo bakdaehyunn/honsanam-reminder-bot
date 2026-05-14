@@ -10,7 +10,7 @@ class MessagePattern:
     prefix: str = "생활알림"
     schedule_label: str = "언제"
     action_label: str = "해야 할 일"
-    note_label: str = "확인할 점"
+    note_label: str = "관리 포인트"
 
 
 def load_pattern(path: Path) -> MessagePattern:

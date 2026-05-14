@@ -6,6 +6,8 @@
 
 macOS 자동 실행이 정해진 시간마다 CLI를 실행해 루틴을 확인하고, 보낼 알림이 있으면 텔레그램 알림봇으로 메시지를 전송합니다. 필요한 루틴은 CLI로 추가하거나 수정할 수 있고, Codex skill은 AI 에이전트가 이 CLI를 쉽게 활용할 수 있도록 돕습니다.
 
+기본 일정은 한 번에 몰리지 않도록 나누어 배치했습니다. 귀찮아서 미루지 않게, 한 번에 하나씩 처리하는 흐름을 기준으로 합니다.
+
 ## 설치
 
 ```bash
@@ -41,7 +43,7 @@ honsanam-reminder add custom --id water-plants --title "화분 물주기" --kind
 honsanam-reminder update water-plants --time 09:30 --note "거실 먼저 확인"
 honsanam-reminder remove water-plants
 honsanam-reminder pattern show
-honsanam-reminder pattern set --prefix "생활알림" --schedule-label "언제" --action-label "해야 할 일" --note-label "확인할 점"
+honsanam-reminder pattern set --prefix "생활알림" --schedule-label "언제" --action-label "해야 할 일" --note-label "관리 포인트"
 honsanam-reminder validate
 ```
 

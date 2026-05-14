@@ -6,7 +6,16 @@ from datetime import date
 
 WEEKDAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 CUSTOM_KINDS = {"one-off", "weekly", "interval"}
-FIXED_IDS = {"haircut", "fingernails", "toenails", "trash", "mac-status", "weekend-cleaning"}
+FIXED_IDS = {
+    "bathroom-cleaning",
+    "bedding-wash",
+    "haircut",
+    "fingernails",
+    "toenails",
+    "trash",
+    "mac-status",
+    "weekend-cleaning",
+}
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -75,6 +84,10 @@ def validate_fixed_update(reminder_id: str, values: dict[str, object]) -> None:
         raise ValidationError(f"unknown fixed reminder: {reminder_id}")
     if "time" in values:
         validate_time(str(values["time"]))
+    if "base_date" in values:
+        validate_date(str(values["base_date"]))
+    if "days" in values:
+        validate_days(int(values["days"]))
     for key in ("title", "action", "note"):
         if key in values and not str(values[key]).strip():
             raise ValidationError(f"{key} must not be empty")

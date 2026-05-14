@@ -83,6 +83,16 @@ def apply_fixed_overrides(config: dict[str, Any], fixed: dict[str, Any]) -> None
             apply_section(config.setdefault("mac_status", {}), values)
         elif reminder_id == "weekend-cleaning":
             apply_section(config.setdefault("cleaning", {}), values)
+        elif reminder_id == "bedding-wash":
+            apply_section(config.setdefault("bedding", {}), values)
+            for key in ("base_date", "days"):
+                if key in values:
+                    config["bedding"][key] = values[key]
+        elif reminder_id == "bathroom-cleaning":
+            apply_section(config.setdefault("bathroom", {}), values)
+            for key in ("base_date", "days"):
+                if key in values:
+                    config["bathroom"][key] = values[key]
 
 
 def apply_section(section: dict[str, Any], values: dict[str, Any]) -> None:
