@@ -262,4 +262,6 @@ def test_upcoming_reminders_lists_distributed_defaults() -> None:
     assert ("맥북 상태점검", "2026-05-16T10:00:00+09:00") in scheduled
     assert ("주말 청소", "2026-05-16T14:00:00+09:00") in scheduled
     assert ("손톱 관리", "2026-05-20T21:00:00+09:00") in scheduled
+    assert ("코털 정리", "2026-05-22T20:30:00+09:00") in scheduled
+    assert ("귀지 정리", "2026-05-25T21:00:00+09:00") in scheduled
     assert ("화장실 청소", "2026-05-31T10:30:00+09:00") in scheduled

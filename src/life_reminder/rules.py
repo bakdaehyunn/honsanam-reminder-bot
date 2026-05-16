@@ -112,6 +112,30 @@ def scheduled_reminders_near(
     )
     if bathroom:
         items.append(bathroom)
+    nose_hair = interval_reminder(
+        now,
+        config.get("nose_hair", {}),
+        "nose-hair",
+        "코털 정리",
+        "코털 정리하기",
+        nose_hair_default_note,
+        tz,
+        pattern,
+    )
+    if nose_hair:
+        items.append(nose_hair)
+    earwax = interval_reminder(
+        now,
+        config.get("earwax", {}),
+        "earwax",
+        "귀지 정리",
+        "귀 주변 정리하기",
+        earwax_default_note,
+        tz,
+        pattern,
+    )
+    if earwax:
+        items.append(earwax)
     items.extend(custom_reminders(now, config.get("custom", []), tz, pattern))
     return items
 
@@ -347,6 +371,24 @@ def bathroom_default_note() -> str:
         [
             "변기, 세면대, 배수구부터 정리하기",
             "화장실은 미루면 바로 티 납니다.",
+        ]
+    )
+
+
+def nose_hair_default_note() -> str:
+    return "\n".join(
+        [
+            "거울 보고 삐져나온 것만 정리하기",
+            "말할 때 은근히 먼저 보입니다.",
+        ]
+    )
+
+
+def earwax_default_note() -> str:
+    return "\n".join(
+        [
+            "면봉으로 깊게 파지 말고 겉만 정리하기",
+            "이어폰 쓸 때 생각보다 신경 쓰입니다.",
         ]
     )
 

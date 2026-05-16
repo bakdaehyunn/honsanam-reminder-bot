@@ -47,3 +47,19 @@ days = 14
 notify_time = "10:30"
 note = """변기, 세면대, 배수구부터 정리하기
 화장실은 미루면 바로 티 납니다."""
+
+[nose_hair]
+enabled = true
+base_date = "2026-05-22"
+days = 14
+notify_time = "20:30"
+note = """거울 보고 삐져나온 것만 정리하기
+말할 때 은근히 먼저 보입니다."""
+
+[earwax]
+enabled = true
+base_date = "2026-05-25"
+days = 21
+notify_time = "21:00"
+note = """면봉으로 깊게 파지 말고 겉만 정리하기
+이어폰 쓸 때 생각보다 신경 쓰입니다."""

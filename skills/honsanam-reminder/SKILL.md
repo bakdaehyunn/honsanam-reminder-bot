@@ -7,7 +7,7 @@ description: Use when managing the 혼사남 알림봇 project through its honsa
 
 Use this skill to operate the `honsanam-reminder` CLI for 혼사남 알림봇. The CLI is the supported interface for routine changes; avoid editing `.local/config/*.json` directly unless the CLI cannot express the requested change.
 
-Fixed reminder IDs: `haircut`, `fingernails`, `toenails`, `trash`, `mac-status`, `weekend-cleaning`, `bedding-wash`, `bathroom-cleaning`.
+Fixed reminder IDs: `haircut`, `fingernails`, `toenails`, `nose-hair`, `earwax`, `trash`, `mac-status`, `weekend-cleaning`, `bedding-wash`, `bathroom-cleaning`.
 
 Default schedule philosophy: avoid piling reminders into one day or time block. Prefer small, separated routines that are easy to act on one at a time.
 

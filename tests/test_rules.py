@@ -111,3 +111,25 @@ def test_bathroom_cleaning_interval_reminder() -> None:
     assert "14일 주기" in reminder.message
     assert "변기, 세면대, 배수구부터 정리하기" in reminder.message
     assert "화장실은 미루면 바로 티 납니다." in reminder.message
+
+
+def test_nose_hair_interval_reminder() -> None:
+    reminders = due_reminders(kst_datetime("2026-05-22", "20:30"), config())
+
+    reminder = next(reminder for reminder in reminders if reminder.title == "코털 정리")
+    assert reminder.scheduled_at.isoformat() == "2026-05-22T20:30:00+09:00"
+    assert "14일 주기" in reminder.message
+    assert "코털 정리하기" in reminder.message
+    assert "거울 보고 삐져나온 것만 정리하기" in reminder.message
+    assert "말할 때 은근히 먼저 보입니다." in reminder.message
+
+
+def test_earwax_interval_reminder() -> None:
+    reminders = due_reminders(kst_datetime("2026-05-25", "21:00"), config())
+
+    reminder = next(reminder for reminder in reminders if reminder.title == "귀지 정리")
+    assert reminder.scheduled_at.isoformat() == "2026-05-25T21:00:00+09:00"
+    assert "21일 주기" in reminder.message
+    assert "귀 주변 정리하기" in reminder.message
+    assert "면봉으로 깊게 파지 말고 겉만 정리하기" in reminder.message
+    assert "이어폰 쓸 때 생각보다 신경 쓰입니다." in reminder.message

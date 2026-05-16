@@ -99,6 +99,16 @@ def apply_fixed_overrides(config: dict[str, Any], fixed: dict[str, Any]) -> None
             for key in ("base_date", "days"):
                 if key in values:
                     config["bathroom"][key] = values[key]
+        elif reminder_id == "nose-hair":
+            apply_section(config.setdefault("nose_hair", {}), values)
+            for key in ("base_date", "days"):
+                if key in values:
+                    config["nose_hair"][key] = values[key]
+        elif reminder_id == "earwax":
+            apply_section(config.setdefault("earwax", {}), values)
+            for key in ("base_date", "days"):
+                if key in values:
+                    config["earwax"][key] = values[key]
 
 
 def apply_section(section: dict[str, Any], values: dict[str, Any]) -> None:
@@ -157,6 +167,12 @@ def fixed_effective_values(reminder_id: str, config: dict[str, Any] | None) -> d
     if reminder_id == "bathroom-cleaning":
         section = config.get("bathroom", {})
         return section_values(section, "화장실 청소", "화장실 청소하기", "변기, 세면대, 배수구부터 정리하기\n화장실은 미루면 바로 티 납니다.", extra_keys=("base_date", "days"))
+    if reminder_id == "nose-hair":
+        section = config.get("nose_hair", {})
+        return section_values(section, "코털 정리", "코털 정리하기", "거울 보고 삐져나온 것만 정리하기\n말할 때 은근히 먼저 보입니다.", extra_keys=("base_date", "days"))
+    if reminder_id == "earwax":
+        section = config.get("earwax", {})
+        return section_values(section, "귀지 정리", "귀 주변 정리하기", "면봉으로 깊게 파지 말고 겉만 정리하기\n이어폰 쓸 때 생각보다 신경 쓰입니다.", extra_keys=("base_date", "days"))
     if reminder_id in {"fingernails", "toenails"}:
         section = config.get("nails", {})
         if not isinstance(section, dict):

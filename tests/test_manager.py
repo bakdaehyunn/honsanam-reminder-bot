@@ -75,6 +75,27 @@ def test_bathroom_fixed_reminder_schedule_can_be_updated(tmp_path) -> None:
     assert config["bathroom"]["days"] == 14
 
 
+def test_grooming_fixed_reminders_schedule_can_be_updated(tmp_path) -> None:
+    path = tmp_path / "reminders.json"
+
+    update_reminder(path, "nose-hair", {"time": "20:00", "base_date": "2026-05-29", "days": 10})
+    update_reminder(path, "earwax", {"time": "20:30", "base_date": "2026-05-30", "days": 28})
+
+    config = merge_config(
+        {
+            "nose_hair": {"enabled": True, "base_date": "2026-05-22", "days": 14, "notify_time": "20:30"},
+            "earwax": {"enabled": True, "base_date": "2026-05-25", "days": 21, "notify_time": "21:00"},
+        },
+        load_management(path),
+    )
+    assert config["nose_hair"]["notify_time"] == "20:00"
+    assert config["nose_hair"]["base_date"] == "2026-05-29"
+    assert config["nose_hair"]["days"] == 10
+    assert config["earwax"]["notify_time"] == "20:30"
+    assert config["earwax"]["base_date"] == "2026-05-30"
+    assert config["earwax"]["days"] == 28
+
+
 def test_fixed_reminder_rejects_unsupported_fields(tmp_path) -> None:
     path = tmp_path / "reminders.json"
 
