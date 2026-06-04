@@ -250,8 +250,12 @@ def setup_cmd(
     print("==> Checking configuration")
     if dry_run:
         print("[dry-run] honsanam-reminder doctor")
+        doctor_status = 0
     else:
-        doctor_cmd(configured)
+        doctor_status = doctor_cmd(configured)
+    if doctor_status != 0:
+        print("setup configured but not ready; fix the doctor items above.")
+        return doctor_status
 
     print("==> Upcoming reminders")
     if dry_run:
@@ -270,8 +274,12 @@ def setup_cmd(
         else:
             print("skipped launchd install")
 
+    print("==> Readiness checklist")
+    print(f"[OK] env_file={settings.env_file}")
+    print(f"[OK] Telegram reminder chat id configured: {chat_id}")
+    print("No test message was sent during setup.")
+    print("Next verification command: honsanam-reminder send-test")
     print("setup complete")
-    print("Run `honsanam-reminder send-test` when you want to verify Telegram delivery.")
     return 0
 
 
@@ -328,8 +336,14 @@ def discover_chat_for_setup(token: str, dry_run: bool, non_interactive: bool) ->
     if not candidates:
         print("could not find chat id automatically")
         return ""
-    print("found Telegram reminder chat id")
-    return candidates[-1].chat_id
+    latest = candidates[-1]
+    print("found Telegram reminder chat candidate")
+    print(f"chat_id: {latest.chat_id}")
+    print(f"title: {latest.title}")
+    print(f"type: {latest.chat_type or '(empty)'}")
+    if non_interactive or ask_yes_no("Use this chat as TELEGRAM_REMINDER_CHAT_ID?", default=True):
+        return latest.chat_id
+    return ""
 
 
 def ask_yes_no(question: str, default: bool) -> bool:

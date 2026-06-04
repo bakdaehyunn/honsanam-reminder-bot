@@ -172,6 +172,54 @@ def test_setup_non_interactive_discovers_chat_id(tmp_path, monkeypatch) -> None:
     assert load_env(settings.env_file)["TELEGRAM_REMINDER_CHAT_ID"] == "-100456"
 
 
+def test_setup_stops_when_doctor_fails(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+    monkeypatch.setattr(cli, "doctor_cmd", lambda configured: 1)
+
+    assert (
+        cli.setup_cmd(
+            settings,
+            dry_run=False,
+            non_interactive=True,
+            telegram_bot_token="secret-token",
+            telegram_chat_id="-100123",
+            timezone="Asia/Seoul",
+            install_launchd=False,
+        )
+        == 1
+    )
+
+    out = capsys.readouterr().out
+    assert "setup configured but not ready" in out
+    assert "setup complete" not in out
+
+
+def test_discover_chat_for_setup_requires_interactive_confirmation(monkeypatch, capsys) -> None:
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self) -> dict[str, object]:
+            return {"ok": True, "result": [{"message": {"chat": {"id": -100456, "title": "생활알림방"}}}]}
+
+    answers = iter(["y", "", "n"])
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+
+    assert cli.discover_chat_for_setup("token", dry_run=False, non_interactive=False) == ""
+    out = capsys.readouterr().out
+    assert "chat_id: -100456" in out
+    assert "title: 생활알림방" in out
+
+
 def test_setup_non_interactive_can_install_launchd_when_requested(tmp_path, monkeypatch) -> None:
     settings = make_settings(tmp_path)
     calls: list[tuple[Path, bool]] = []
