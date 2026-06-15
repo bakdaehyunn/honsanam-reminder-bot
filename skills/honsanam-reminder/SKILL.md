@@ -105,9 +105,10 @@ Process Telegram Yes/No confirmation button replies:
 
 ```bash
 honsanam-reminder poll-replies
+honsanam-reminder poll-replies --watch
 ```
 
-Use before `run-once` in launchd or when checking whether Telegram button answers have been applied. This reads Telegram `getUpdates`, updates confirmation state, and answers callback queries.
+Use one-shot mode when checking whether Telegram button answers have been applied. Use `--watch` for the launchd reply watcher; it uses Telegram long polling and keeps running so inline button loading clears quickly. This reads Telegram `getUpdates`, updates confirmation state, and answers callback queries.
 
 ### `pending`
 
@@ -264,3 +265,9 @@ Verify delivery:
 3. Run `poll-replies`.
 4. Run `run-once --dry-run`.
 5. Ask for approval before `send-test` or `run-once`.
+
+Verify launchd:
+
+1. Run `scripts/install_launch_agent.sh`.
+2. Confirm `com.hennei.honsanam-reminder-bot.replies` runs `poll-replies --watch` with `KeepAlive`.
+3. Confirm `com.hennei.honsanam-reminder-bot.sender` runs `run-once` with `StartCalendarInterval` at 08:45, 10:00, 14:00, 20:00, 20:30, and 21:00.

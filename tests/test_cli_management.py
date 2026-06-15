@@ -323,8 +323,10 @@ def test_poll_replies_processes_yes_callback_and_stores_offset(tmp_path, monkeyp
             self.token = token
             self.chat_id = chat_id
 
-        def get_updates(self, offset=None) -> dict[str, object]:
+        def get_updates(self, offset=None, timeout=None, allowed_updates=None) -> dict[str, object]:
             assert offset is None
+            assert timeout == 0
+            assert allowed_updates == ["callback_query"]
             return {
                 "ok": True,
                 "result": [
@@ -370,8 +372,10 @@ def test_poll_replies_processes_no_callback_without_completion(tmp_path, monkeyp
             self.token = token
             self.chat_id = chat_id
 
-        def get_updates(self, offset=None) -> dict[str, object]:
+        def get_updates(self, offset=None, timeout=None, allowed_updates=None) -> dict[str, object]:
             assert offset == 101
+            assert timeout == 0
+            assert allowed_updates == ["callback_query"]
             return {
                 "ok": True,
                 "result": [
@@ -395,6 +399,103 @@ def test_poll_replies_processes_no_callback_without_completion(tmp_path, monkeyp
     assert item["status"] == "pending"
     assert item["last_answer"] == "no"
     assert store.offset() == 102
+
+
+def test_poll_replies_keeps_answer_when_callback_ack_fails(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    store.upsert_pending(
+        confirmation_id="haircut-booking-2026-06-07",
+        reminder_id="haircut-booking-2026-06-07",
+        title="미용실 예약",
+        message="message",
+        prompt="미용실 예약했나요?",
+        scheduled_at=kst_datetime("2026-06-01", "08:45"),
+        prompted_at=kst_datetime("2026-06-01", "08:45"),
+        followup_days=7,
+    )
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self, offset=None, timeout=None, allowed_updates=None) -> dict[str, object]:
+            assert timeout == 0
+            assert allowed_updates == ["callback_query"]
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "update_id": 200,
+                        "callback_query": {
+                            "id": "expired-callback",
+                            "data": "confirm:haircut-booking-2026-06-07:no",
+                        },
+                    }
+                ],
+            }
+
+        def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+            raise RuntimeError("callback query is too old")
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.poll_replies_cmd(settings) == 0
+    item = store.get("haircut-booking-2026-06-07")
+    assert item["status"] == "pending"
+    assert item["last_answer"] == "no"
+    out = capsys.readouterr().out
+    assert "[WARN] Telegram answerCallbackQuery failed" in out
+    assert "answered haircut-booking-2026-06-07: no" in out
+
+
+def test_poll_replies_watch_uses_long_polling_and_can_stop_in_tests(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    calls = []
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self, offset=None, timeout=None, allowed_updates=None) -> dict[str, object]:
+            calls.append((offset, timeout, allowed_updates))
+            return {"ok": True, "result": []}
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.main(["poll-replies", "--watch", "--watch-iterations", "2"]) == 0
+    assert calls == [
+        (None, 50, ["callback_query"]),
+        (None, 50, ["callback_query"]),
+    ]
+    assert "Watching Telegram confirmation replies." in capsys.readouterr().out
+
+
+def test_poll_replies_watch_handles_api_errors_and_continues(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+    calls = 0
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self, offset=None, timeout=None, allowed_updates=None) -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("network down")
+            return {"ok": True, "result": []}
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+    monkeypatch.setattr(cli.time_module, "sleep", lambda seconds: None)
+
+    assert cli.poll_replies_cmd(settings, watch=True, watch_iterations=2) == 0
+    assert calls == 2
+    assert "[WARN] Telegram getUpdates failed: network down" in capsys.readouterr().out
 
 
 def test_pending_and_answer_commands(tmp_path, capsys) -> None:

@@ -21,11 +21,21 @@ class TelegramClient:
     def get_me(self) -> dict[str, object]:
         return self._api("getMe", {})
 
-    def get_updates(self, offset: int | None = None) -> dict[str, object]:
+    def get_updates(
+        self,
+        offset: int | None = None,
+        timeout: int | None = None,
+        allowed_updates: list[str] | None = None,
+    ) -> dict[str, object]:
         params = {"limit": "100"}
         if offset is not None:
             params["offset"] = str(offset)
-        return self._api("getUpdates", params)
+        if timeout is not None:
+            params["timeout"] = str(timeout)
+        if allowed_updates is not None:
+            params["allowed_updates"] = json.dumps(allowed_updates)
+        request_timeout = (timeout + 10) if timeout is not None else 15
+        return self._api("getUpdates", params, timeout_seconds=request_timeout)
 
     def send_message(self, text: str, reply_markup: dict[str, object] | None = None) -> None:
         params = {
@@ -47,7 +57,13 @@ class TelegramClient:
             params["text"] = text
         self._api("answerCallbackQuery", params, method="POST")
 
-    def _api(self, method_name: str, params: dict[str, object], method: str = "GET") -> dict[str, object]:
+    def _api(
+        self,
+        method_name: str,
+        params: dict[str, object],
+        method: str = "GET",
+        timeout_seconds: int = 15,
+    ) -> dict[str, object]:
         if not self.token:
             raise RuntimeError("TELEGRAM_BOT_TOKEN is empty")
         url = f"https://api.telegram.org/bot{self.token}/{method_name}"
@@ -58,7 +74,7 @@ class TelegramClient:
         else:
             data = urlencode(params).encode("utf-8")
         req = Request(url, data=data, method=method)
-        with urlopen(req, timeout=15) as resp:
+        with urlopen(req, timeout=timeout_seconds) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         if not isinstance(payload, dict) or not payload.get("ok"):
             raise RuntimeError(f"Telegram API failed: {payload}")

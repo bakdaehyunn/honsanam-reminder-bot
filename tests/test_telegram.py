@@ -79,3 +79,29 @@ def test_answer_callback_query_posts_callback_response(monkeypatch) -> None:
             "POST",
         )
     ]
+
+
+def test_get_updates_supports_long_polling_and_allowed_updates(monkeypatch) -> None:
+    calls = []
+    client = TelegramClient("token", "-100")
+
+    def fake_api(method_name, params, method="GET", timeout_seconds=15):
+        calls.append((method_name, params, method, timeout_seconds))
+        return {"ok": True, "result": []}
+
+    monkeypatch.setattr(client, "_api", fake_api)
+    client.get_updates(offset=123, timeout=50, allowed_updates=["callback_query"])
+
+    assert calls == [
+        (
+            "getUpdates",
+            {
+                "limit": "100",
+                "offset": "123",
+                "timeout": "50",
+                "allowed_updates": '["callback_query"]',
+            },
+            "GET",
+            60,
+        )
+    ]

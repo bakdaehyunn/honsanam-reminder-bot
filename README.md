@@ -69,6 +69,7 @@ honsanam-reminder preview --date 2026-06-01 --time 08:45
 honsanam-reminder next --days 14
 honsanam-reminder run-once --dry-run
 honsanam-reminder poll-replies
+honsanam-reminder poll-replies --watch
 honsanam-reminder pending
 honsanam-reminder answer haircut-booking-2026-06-07 yes
 honsanam-reminder run-once
@@ -123,6 +124,11 @@ scripts/install_launch_agent.sh
 scripts/uninstall_launch_agent.sh
 ```
 
-LaunchAgent는 5분마다 `scripts/run_launchd_once.sh`를 실행합니다. 이 스크립트는 Telegram Yes/No 응답을 먼저 확인한 뒤 `honsanam-reminder run-once`를 실행합니다.
+LaunchAgent는 두 개로 나누어 설치됩니다.
 
-중복 알림 발송은 `.local/state/sent.json` 파일로 방지하고, Yes/No 확인 상태는 `.local/state/confirmations.json` 파일로 관리합니다.
+- `com.hennei.honsanam-reminder-bot.replies`: `honsanam-reminder poll-replies --watch`를 계속 실행하며 Telegram Yes/No 버튼 응답을 long polling으로 처리합니다.
+- `com.hennei.honsanam-reminder-bot.sender`: `honsanam-reminder run-once`를 실제 기본 알림 시간대에만 실행합니다. 현재 기본 실행 시간은 08:45, 10:00, 14:00, 20:00, 20:30, 21:00입니다.
+
+이 구조는 전체 알림 발송 로직을 5분마다 반복 실행하지 않으면서도, Telegram 버튼 응답은 빠르게 처리하기 위한 방식입니다.
+
+중복 알림 발송은 `.local/state/sent.json` 파일로 방지하고, Yes/No 확인 상태는 `.local/state/confirmations.json` 파일로 관리합니다. `scripts/run_launchd_once.sh`는 수동 점검용으로 남겨 두지만, 일반 launchd 설치 흐름에서는 사용하지 않습니다.

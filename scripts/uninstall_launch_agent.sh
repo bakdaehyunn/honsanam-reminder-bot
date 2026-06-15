@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PLIST="$HOME/Library/LaunchAgents/com.hennei.honsanam-reminder-bot.plist"
+AGENT_DIR="$HOME/Library/LaunchAgents"
+BASE_LABEL="com.hennei.honsanam-reminder-bot"
+PLISTS=(
+  "$AGENT_DIR/$BASE_LABEL.plist"
+  "$AGENT_DIR/$BASE_LABEL.replies.plist"
+  "$AGENT_DIR/$BASE_LABEL.sender.plist"
+)
 
-launchctl unload "$PLIST" 2>/dev/null || true
-rm -f "$PLIST"
-echo "removed $PLIST"
+for plist in "${PLISTS[@]}"; do
+  launchctl unload "$plist" 2>/dev/null || true
+  rm -f "$plist"
+  echo "removed $plist"
+done

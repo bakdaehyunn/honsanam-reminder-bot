@@ -5,6 +5,7 @@ import getpass
 import json
 import subprocess
 import sys
+import time as time_module
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -65,7 +66,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_run = sub.add_parser("run-once", help="Send reminders due now")
     p_run.add_argument("--dry-run", action="store_true")
-    sub.add_parser("poll-replies", help="Process Telegram Yes/No confirmation replies")
+    p_poll_replies = sub.add_parser("poll-replies", help="Process Telegram Yes/No confirmation replies")
+    p_poll_replies.add_argument("--watch", action="store_true")
+    p_poll_replies.add_argument("--watch-iterations", type=int, help=argparse.SUPPRESS)
     p_pending = sub.add_parser("pending", help="List pending confirmations")
     p_pending.add_argument("--json", action="store_true")
     p_answer = sub.add_parser("answer", help="Manually answer a pending confirmation")
@@ -153,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "run-once":
         return run_once_cmd(settings, dry_run=args.dry_run)
     if args.cmd == "poll-replies":
-        return poll_replies_cmd(settings)
+        return poll_replies_cmd(settings, watch=args.watch, watch_iterations=args.watch_iterations)
     if args.cmd == "pending":
         return pending_cmd(settings, json_output=args.json)
     if args.cmd == "answer":
@@ -633,20 +636,72 @@ def reminder_from_confirmation_item(item: dict[str, object], now: datetime) -> R
     )
 
 
-def poll_replies_cmd(settings: Settings) -> int:
+def poll_replies_cmd(settings: Settings, watch: bool = False, watch_iterations: int | None = None) -> int:
     store = ConfirmationStore(settings.state_dir / "confirmations.json")
     client = TelegramClient(settings.telegram_bot_token, settings.telegram_reminder_chat_id)
+    if watch:
+        return watch_replies(client, store, settings, max_iterations=watch_iterations)
+    return poll_replies_once(client, store, settings, long_poll_timeout=0)
+
+
+def watch_replies(
+    client: TelegramClient,
+    store: ConfirmationStore,
+    settings: Settings,
+    max_iterations: int | None = None,
+    long_poll_timeout: int = 50,
+    error_backoff_seconds: int = 5,
+) -> int:
+    print("Watching Telegram confirmation replies.")
+    iterations = 0
+    while max_iterations is None or iterations < max_iterations:
+        iterations += 1
+        status = poll_replies_once(
+            client,
+            store,
+            settings,
+            long_poll_timeout=long_poll_timeout,
+            quiet_no_updates=True,
+        )
+        if status != 0:
+            time_module.sleep(error_backoff_seconds)
+    return 0
+
+
+def poll_replies_once(
+    client: TelegramClient,
+    store: ConfirmationStore,
+    settings: Settings,
+    long_poll_timeout: int,
+    quiet_no_updates: bool = False,
+) -> int:
     try:
-        payload = client.get_updates(offset=store.offset())
+        payload = client.get_updates(
+            offset=store.offset(),
+            timeout=long_poll_timeout,
+            allowed_updates=["callback_query"],
+        )
     except Exception as exc:
-        print(f"[FAIL] Telegram getUpdates failed: {exc}")
+        print(f"[WARN] Telegram getUpdates failed: {exc}")
         return 1
     updates = payload.get("result", []) if isinstance(payload, dict) else []
     if not isinstance(updates, list):
-        print("[FAIL] Telegram getUpdates returned invalid result")
+        print("[WARN] Telegram getUpdates returned invalid result")
         return 1
-    handled = 0
+    handled = process_confirmation_updates(client, store, settings, updates)
+    if handled == 0 and not quiet_no_updates:
+        print("No confirmation replies.")
+    return 0
+
+
+def process_confirmation_updates(
+    client: TelegramClient,
+    store: ConfirmationStore,
+    settings: Settings,
+    updates: list[object],
+) -> int:
     now = datetime.now(ZoneInfo(settings.timezone)).replace(second=0, microsecond=0)
+    handled = 0
     for update in updates:
         if not isinstance(update, dict):
             continue
@@ -666,16 +721,21 @@ def poll_replies_cmd(settings: Settings) -> int:
             store.mark_answer(confirmation_id, answer, now)
         except KeyError:
             if callback_id:
-                client.answer_callback_query(callback_id, "알림을 찾을 수 없습니다.")
+                answer_callback_query_safely(client, callback_id, "알림을 찾을 수 없습니다.")
             print(f"unknown confirmation: {confirmation_id}")
             continue
         if callback_id:
-            client.answer_callback_query(callback_id, "완료 처리했습니다." if answer == "yes" else "다음에 다시 물어볼게요.")
+            answer_callback_query_safely(client, callback_id, "완료 처리했습니다." if answer == "yes" else "다음에 다시 물어볼게요.")
         print(f"answered {confirmation_id}: {answer}")
         handled += 1
-    if handled == 0:
-        print("No confirmation replies.")
-    return 0
+    return handled
+
+
+def answer_callback_query_safely(client: TelegramClient, callback_query_id: str, text: str) -> None:
+    try:
+        client.answer_callback_query(callback_query_id, text)
+    except Exception as exc:
+        print(f"[WARN] Telegram answerCallbackQuery failed: {exc}")
 
 
 def parse_confirmation_callback(data: str) -> tuple[str, str] | None:
