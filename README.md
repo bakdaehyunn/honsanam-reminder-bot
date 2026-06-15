@@ -71,6 +71,7 @@ honsanam-reminder run-once --dry-run
 honsanam-reminder poll-replies
 honsanam-reminder poll-replies --watch
 honsanam-reminder pending
+honsanam-reminder interactions
 honsanam-reminder answer haircut-booking-2026-06-07 yes
 honsanam-reminder run-once
 honsanam-reminder send-test
@@ -96,11 +97,11 @@ honsanam-reminder validate
 
 기본 생활 루틴은 켜기, 끄기, 일정 수정이 가능하며, 필요한 루틴은 커스텀 알림으로 추가해 관리할 수 있습니다.
 
-## Yes/No 확인 알림
+## 확인 알림과 반응 버튼
 
-미용실 예약처럼 실제로 했는지 확인이 필요한 알림은 Telegram 메시지에 `Yes` / `No` 버튼이 함께 전송됩니다.
+미용실 예약처럼 실제로 했는지 확인이 필요한 알림은 Telegram 메시지에 `예약했음` / `아직` 버튼이 함께 전송됩니다.
 
-`Yes`를 누르면 해당 미용실 예약 주기는 완료 처리되고, 더 이상 같은 예약 건을 묻지 않습니다. `No`를 누르거나 답하지 않으면 대기 상태로 남고, 7일 뒤 같은 요일과 시간에 다시 물어봅니다.
+`예약했음`을 누르면 해당 미용실 예약 주기는 완료 처리되고, 더 이상 같은 예약 건을 묻지 않습니다. `아직`을 누르거나 답하지 않으면 대기 상태로 남고, 7일 뒤 같은 요일과 시간에 다시 물어봅니다.
 
 수동으로 확인 상태를 보거나 처리할 수도 있습니다.
 
@@ -109,6 +110,13 @@ honsanam-reminder pending
 honsanam-reminder answer haircut-booking-2026-06-07 yes
 honsanam-reminder answer haircut-booking-2026-06-07 no
 honsanam-reminder poll-replies
+```
+
+그 외 일반 생활 루틴에도 가벼운 반응 버튼이 붙습니다. 예를 들어 분리수거는 `내놨음` / `나중에`, 맥북 상태점검은 `확인했음`처럼 표시됩니다. 이 반응은 재알림을 만들지 않고, 나중에 통계로 볼 수 있도록 `.local/state/interactions.json`에만 기록합니다.
+
+```bash
+honsanam-reminder interactions
+honsanam-reminder interactions --json
 ```
 
 ## AI 에이전트용 skill
@@ -131,4 +139,4 @@ LaunchAgent는 두 개로 나누어 설치됩니다.
 
 이 구조는 전체 알림 발송 로직을 5분마다 반복 실행하지 않으면서도, Telegram 버튼 응답은 빠르게 처리하기 위한 방식입니다.
 
-중복 알림 발송은 `.local/state/sent.json` 파일로 방지하고, Yes/No 확인 상태는 `.local/state/confirmations.json` 파일로 관리합니다. `scripts/run_launchd_once.sh`는 수동 점검용으로 남겨 두지만, 일반 launchd 설치 흐름에서는 사용하지 않습니다.
+중복 알림 발송은 `.local/state/sent.json` 파일로 방지하고, 확인 알림 상태는 `.local/state/confirmations.json`, 일반 반응 기록은 `.local/state/interactions.json` 파일로 관리합니다. `scripts/run_launchd_once.sh`는 수동 점검용으로 남겨 두지만, 일반 launchd 설치 흐름에서는 사용하지 않습니다.

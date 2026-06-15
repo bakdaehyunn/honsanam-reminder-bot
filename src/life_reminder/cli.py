@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import subprocess
 import sys
@@ -20,6 +21,7 @@ from life_reminder.config import (
     load_reminders,
     write_default_files,
 )
+from life_reminder.interactions import InteractionStore
 from life_reminder.mac_status import collect_status
 from life_reminder.manager import (
     add_custom,
@@ -66,11 +68,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p_run = sub.add_parser("run-once", help="Send reminders due now")
     p_run.add_argument("--dry-run", action="store_true")
-    p_poll_replies = sub.add_parser("poll-replies", help="Process Telegram Yes/No confirmation replies")
+    p_poll_replies = sub.add_parser("poll-replies", help="Process Telegram reminder button replies")
     p_poll_replies.add_argument("--watch", action="store_true")
     p_poll_replies.add_argument("--watch-iterations", type=int, help=argparse.SUPPRESS)
     p_pending = sub.add_parser("pending", help="List pending confirmations")
     p_pending.add_argument("--json", action="store_true")
+    p_interactions = sub.add_parser("interactions", help="List reminder interaction responses")
+    p_interactions.add_argument("--json", action="store_true")
     p_answer = sub.add_parser("answer", help="Manually answer a pending confirmation")
     p_answer.add_argument("confirmation_id")
     p_answer.add_argument("answer", choices=["yes", "no"])
@@ -159,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
         return poll_replies_cmd(settings, watch=args.watch, watch_iterations=args.watch_iterations)
     if args.cmd == "pending":
         return pending_cmd(settings, json_output=args.json)
+    if args.cmd == "interactions":
+        return interactions_cmd(settings, json_output=args.json)
     if args.cmd == "answer":
         return answer_cmd(settings, args.confirmation_id, args.answer)
     if args.cmd == "send-test":
@@ -500,6 +506,7 @@ def run_once_cmd(settings: Settings, dry_run: bool) -> int:
     reminders = due_reminders(now, config, mac_status_text=mac_status_if_needed(now, config), pattern=pattern)
     store = SentStore(settings.state_dir / "sent.json")
     confirmation_store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    interaction_store = InteractionStore(settings.state_dir / "interactions.json")
     regular_pending: list[Reminder] = []
     confirmation_pending: list[Reminder] = []
     for reminder in reminders:
@@ -533,7 +540,15 @@ def run_once_cmd(settings: Settings, dry_run: bool) -> int:
             return 0
         client = TelegramClient(settings.telegram_bot_token, settings.telegram_reminder_chat_id)
         for reminder in regular_pending:
-            client.send_message(reminder.message)
+            interaction_id = interaction_id_for_reminder(reminder)
+            client.send_message(reminder.message, reply_markup=interaction_keyboard(reminder))
+            interaction_store.upsert_sent(
+                interaction_id=interaction_id,
+                reminder_id=reminder.reminder_id,
+                title=reminder.title,
+                action=interaction_action_for_reminder(reminder),
+                scheduled_at=reminder.scheduled_at,
+            )
             store.add(reminder.sent_key)
             print(f"sent {reminder.sent_key}")
         for reminder in confirmation_pending:
@@ -574,11 +589,53 @@ def confirmation_keyboard(confirmation_id: str) -> dict[str, object]:
     return {
         "inline_keyboard": [
             [
-                {"text": "Yes", "callback_data": f"confirm:{confirmation_id}:yes"},
-                {"text": "No", "callback_data": f"confirm:{confirmation_id}:no"},
+                {"text": "예약했음", "callback_data": f"confirm:{confirmation_id}:yes"},
+                {"text": "아직", "callback_data": f"confirm:{confirmation_id}:no"},
             ]
         ]
     }
+
+
+def interaction_id_for_reminder(reminder: Reminder) -> str:
+    raw = f"{reminder.reminder_id}:{reminder.scheduled_at.isoformat()}"
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    return f"i-{reminder.scheduled_at:%Y%m%d%H%M}-{digest}"
+
+
+def interaction_keyboard(reminder: Reminder) -> dict[str, object]:
+    interaction_id = interaction_id_for_reminder(reminder)
+    labels = interaction_labels_for_reminder(reminder)
+    if len(labels) == 1:
+        text, response = labels[0]
+        return {"inline_keyboard": [[{"text": text, "callback_data": f"interact:{interaction_id}:{response}"}]]}
+    return {
+        "inline_keyboard": [
+            [
+                {"text": text, "callback_data": f"interact:{interaction_id}:{response}"}
+                for text, response in labels
+            ]
+        ]
+    }
+
+
+def interaction_labels_for_reminder(reminder: Reminder) -> list[tuple[str, str]]:
+    reminder_id = reminder.reminder_id
+    if reminder_id.startswith("trash-"):
+        return [("내놨음", "done"), ("나중에", "later")]
+    if reminder_id in {"fingernails", "toenails"} or reminder_id.startswith(("nose-hair-", "earwax-")):
+        return [("정리했음", "done"), ("나중에", "later")]
+    if reminder_id.startswith(("weekend-cleaning-", "bathroom-cleaning-")):
+        return [("청소했음", "done"), ("나중에", "later")]
+    if reminder_id.startswith("bedding-wash-"):
+        return [("빨래했음", "done"), ("나중에", "later")]
+    if reminder_id.startswith("mac-status-"):
+        return [("확인했음", "checked")]
+    return [("했음", "done"), ("나중에", "later")]
+
+
+def interaction_action_for_reminder(reminder: Reminder) -> str:
+    labels = interaction_labels_for_reminder(reminder)
+    return labels[0][0]
 
 
 def confirmation_message(message: str, prompt: str) -> str:
@@ -638,27 +695,30 @@ def reminder_from_confirmation_item(item: dict[str, object], now: datetime) -> R
 
 def poll_replies_cmd(settings: Settings, watch: bool = False, watch_iterations: int | None = None) -> int:
     store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    interaction_store = InteractionStore(settings.state_dir / "interactions.json")
     client = TelegramClient(settings.telegram_bot_token, settings.telegram_reminder_chat_id)
     if watch:
-        return watch_replies(client, store, settings, max_iterations=watch_iterations)
-    return poll_replies_once(client, store, settings, long_poll_timeout=0)
+        return watch_replies(client, store, interaction_store, settings, max_iterations=watch_iterations)
+    return poll_replies_once(client, store, interaction_store, settings, long_poll_timeout=0)
 
 
 def watch_replies(
     client: TelegramClient,
     store: ConfirmationStore,
+    interaction_store: InteractionStore,
     settings: Settings,
     max_iterations: int | None = None,
     long_poll_timeout: int = 50,
     error_backoff_seconds: int = 5,
 ) -> int:
-    print("Watching Telegram confirmation replies.")
+    print("Watching Telegram button replies.")
     iterations = 0
     while max_iterations is None or iterations < max_iterations:
         iterations += 1
         status = poll_replies_once(
             client,
             store,
+            interaction_store,
             settings,
             long_poll_timeout=long_poll_timeout,
             quiet_no_updates=True,
@@ -671,6 +731,7 @@ def watch_replies(
 def poll_replies_once(
     client: TelegramClient,
     store: ConfirmationStore,
+    interaction_store: InteractionStore,
     settings: Settings,
     long_poll_timeout: int,
     quiet_no_updates: bool = False,
@@ -688,15 +749,16 @@ def poll_replies_once(
     if not isinstance(updates, list):
         print("[WARN] Telegram getUpdates returned invalid result")
         return 1
-    handled = process_confirmation_updates(client, store, settings, updates)
+    handled = process_reply_updates(client, store, interaction_store, settings, updates)
     if handled == 0 and not quiet_no_updates:
-        print("No confirmation replies.")
+        print("No button replies.")
     return 0
 
 
-def process_confirmation_updates(
+def process_reply_updates(
     client: TelegramClient,
     store: ConfirmationStore,
+    interaction_store: InteractionStore,
     settings: Settings,
     updates: list[object],
 ) -> int:
@@ -713,21 +775,44 @@ def process_confirmation_updates(
             continue
         callback_id = str(callback.get("id") or "")
         data = str(callback.get("data") or "")
-        parsed = parse_confirmation_callback(data)
-        if parsed is None:
-            continue
-        confirmation_id, answer = parsed
-        try:
-            store.mark_answer(confirmation_id, answer, now)
-        except KeyError:
+        confirmation = parse_confirmation_callback(data)
+        if confirmation is not None:
+            confirmation_id, answer = confirmation
+            try:
+                store.mark_answer(confirmation_id, answer, now)
+            except KeyError:
+                if callback_id:
+                    answer_callback_query_safely(client, callback_id, "알림을 찾을 수 없습니다.")
+                print(f"unknown confirmation: {confirmation_id}")
+                continue
             if callback_id:
-                answer_callback_query_safely(client, callback_id, "알림을 찾을 수 없습니다.")
-            print(f"unknown confirmation: {confirmation_id}")
+                answer_callback_query_safely(client, callback_id, "완료 처리했습니다." if answer == "yes" else "다음에 다시 물어볼게요.")
+            print(f"answered {confirmation_id}: {answer}")
+            handled += 1
             continue
-        if callback_id:
-            answer_callback_query_safely(client, callback_id, "완료 처리했습니다." if answer == "yes" else "다음에 다시 물어볼게요.")
-        print(f"answered {confirmation_id}: {answer}")
-        handled += 1
+        interaction = parse_interaction_callback(data)
+        if interaction is not None:
+            interaction_id, response = interaction
+            try:
+                interaction_store.record_response(
+                    interaction_id=interaction_id,
+                    response=response,
+                    responded_at=now,
+                    telegram_update_id=update_id if isinstance(update_id, int) else None,
+                )
+            except KeyError:
+                if callback_id:
+                    answer_callback_query_safely(client, callback_id, "알림 기록을 찾을 수 없습니다.")
+                print(f"unknown interaction: {interaction_id}")
+                continue
+            if callback_id:
+                answer_callback_query_safely(
+                    client,
+                    callback_id,
+                    "나중에 기록했습니다." if response == "later" else "처리되었습니다.",
+                )
+            print(f"interacted {interaction_id}: {response}")
+            handled += 1
     return handled
 
 
@@ -745,6 +830,13 @@ def parse_confirmation_callback(data: str) -> tuple[str, str] | None:
     return parts[1], parts[2]
 
 
+def parse_interaction_callback(data: str) -> tuple[str, str] | None:
+    parts = data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "interact" or parts[2] not in {"done", "later", "checked"}:
+        return None
+    return parts[1], parts[2]
+
+
 def pending_cmd(settings: Settings, json_output: bool) -> int:
     items = ConfirmationStore(settings.state_dir / "confirmations.json").pending_items()
     if json_output:
@@ -757,6 +849,23 @@ def pending_cmd(settings: Settings, json_output: bool) -> int:
         print(
             f"{item.get('confirmation_id')}\t{item.get('status')}\t"
             f"last_prompted={item.get('last_prompted_at')}\t{item.get('title')}"
+        )
+    return 0
+
+
+def interactions_cmd(settings: Settings, json_output: bool) -> int:
+    items = InteractionStore(settings.state_dir / "interactions.json").list_items()
+    if json_output:
+        print(json.dumps(items, ensure_ascii=False, indent=2))
+        return 0
+    if not items:
+        print("No interactions.")
+        return 0
+    for item in items:
+        response = item.get("selected_response") or "-"
+        print(
+            f"{item.get('interaction_id')}\t{response}\t"
+            f"scheduled={item.get('scheduled_at')}\t{item.get('title')}"
         )
     return 0
 

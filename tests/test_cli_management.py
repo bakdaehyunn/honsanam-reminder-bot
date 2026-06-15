@@ -6,6 +6,7 @@ import pytest
 from life_reminder import cli
 from life_reminder.confirmations import ConfirmationStore
 from life_reminder.config import Settings, default_reminders_toml, load_env
+from life_reminder.interactions import InteractionStore
 from life_reminder.rules import kst_datetime
 
 
@@ -450,6 +451,109 @@ def test_poll_replies_keeps_answer_when_callback_ack_fails(tmp_path, monkeypatch
     assert "answered haircut-booking-2026-06-07: no" in out
 
 
+def test_poll_replies_records_interaction_done_callback(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+    store = InteractionStore(settings.state_dir / "interactions.json")
+    store.upsert_sent(
+        interaction_id="trash-20260616-2000",
+        reminder_id="trash-2026-06-16",
+        title="분리수거",
+        action="내놨음",
+        scheduled_at=kst_datetime("2026-06-16", "20:00"),
+    )
+    answered_callbacks = []
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self, offset=None, timeout=None, allowed_updates=None) -> dict[str, object]:
+            assert allowed_updates == ["callback_query"]
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "update_id": 300,
+                        "callback_query": {
+                            "id": "cb-300",
+                            "data": "interact:trash-20260616-2000:done",
+                        },
+                    }
+                ],
+            }
+
+        def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+            answered_callbacks.append((callback_query_id, text))
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.poll_replies_cmd(settings) == 0
+    item = store.list_items()[0]
+    assert item["selected_response"] == "done"
+    assert item["telegram_update_id"] == 300
+    assert answered_callbacks == [("cb-300", "처리되었습니다.")]
+    assert "interacted trash-20260616-2000: done" in capsys.readouterr().out
+
+
+def test_poll_replies_records_interaction_later_and_checked_callbacks(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    store = InteractionStore(settings.state_dir / "interactions.json")
+    store.upsert_sent(
+        interaction_id="trash-20260616-2000",
+        reminder_id="trash-2026-06-16",
+        title="분리수거",
+        action="내놨음",
+        scheduled_at=kst_datetime("2026-06-16", "20:00"),
+    )
+    store.upsert_sent(
+        interaction_id="mac-status-20260620-1000",
+        reminder_id="mac-status-2026-06-20",
+        title="맥북 상태점검",
+        action="확인했음",
+        scheduled_at=kst_datetime("2026-06-20", "10:00"),
+    )
+    answered_callbacks = []
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self, offset=None, timeout=None, allowed_updates=None) -> dict[str, object]:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "update_id": 301,
+                        "callback_query": {
+                            "id": "cb-301",
+                            "data": "interact:trash-20260616-2000:later",
+                        },
+                    },
+                    {
+                        "update_id": 302,
+                        "callback_query": {
+                            "id": "cb-302",
+                            "data": "interact:mac-status-20260620-1000:checked",
+                        },
+                    },
+                ],
+            }
+
+        def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+            answered_callbacks.append((callback_query_id, text))
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.poll_replies_cmd(settings) == 0
+    items = {item["interaction_id"]: item for item in store.list_items()}
+    assert items["trash-20260616-2000"]["selected_response"] == "later"
+    assert items["mac-status-20260620-1000"]["selected_response"] == "checked"
+    assert ("cb-301", "나중에 기록했습니다.") in answered_callbacks
+    assert ("cb-302", "처리되었습니다.") in answered_callbacks
+
+
 def test_poll_replies_watch_uses_long_polling_and_can_stop_in_tests(tmp_path, monkeypatch, capsys) -> None:
     settings = make_settings(tmp_path)
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
@@ -471,7 +575,7 @@ def test_poll_replies_watch_uses_long_polling_and_can_stop_in_tests(tmp_path, mo
         (None, 50, ["callback_query"]),
         (None, 50, ["callback_query"]),
     ]
-    assert "Watching Telegram confirmation replies." in capsys.readouterr().out
+    assert "Watching Telegram button replies." in capsys.readouterr().out
 
 
 def test_poll_replies_watch_handles_api_errors_and_continues(tmp_path, monkeypatch, capsys) -> None:
@@ -519,6 +623,32 @@ def test_pending_and_answer_commands(tmp_path, capsys) -> None:
     assert store.get("haircut-booking-2026-06-07")["status"] == "completed"
 
 
+def test_interactions_command_lists_stored_interactions(tmp_path, capsys) -> None:
+    settings = make_settings(tmp_path)
+    store = InteractionStore(settings.state_dir / "interactions.json")
+    store.upsert_sent(
+        interaction_id="trash-20260616-2000",
+        reminder_id="trash-2026-06-16",
+        title="분리수거",
+        action="내놨음",
+        scheduled_at=kst_datetime("2026-06-16", "20:00"),
+    )
+    store.record_response(
+        interaction_id="trash-20260616-2000",
+        response="done",
+        responded_at=kst_datetime("2026-06-16", "20:05"),
+        telegram_update_id=123,
+    )
+
+    assert cli.interactions_cmd(settings, json_output=False) == 0
+    output = capsys.readouterr().out
+    assert "trash-20260616-2000" in output
+    assert "done" in output
+
+    assert cli.interactions_cmd(settings, json_output=True) == 0
+    assert '"selected_response": "done"' in capsys.readouterr().out
+
+
 def test_run_once_sends_haircut_confirmation_with_buttons(tmp_path, monkeypatch) -> None:
     settings = make_settings(tmp_path)
     sent = []
@@ -543,6 +673,8 @@ def test_run_once_sends_haircut_confirmation_with_buttons(tmp_path, monkeypatch)
     assert len(sent) == 1
     assert "미용실 예약했나요?" in sent[0][0]
     assert sent[0][1]["inline_keyboard"][0][0]["callback_data"] == "confirm:haircut-booking-2026-06-07:yes"
+    assert sent[0][1]["inline_keyboard"][0][0]["text"] == "예약했음"
+    assert sent[0][1]["inline_keyboard"][0][1]["text"] == "아직"
     assert ConfirmationStore(settings.state_dir / "confirmations.json").get("haircut-booking-2026-06-07")["status"] == "pending"
 
 
@@ -654,7 +786,7 @@ def test_run_once_suppresses_completed_confirmation_followup(tmp_path, monkeypat
     assert sent == []
 
 
-def test_run_once_keeps_non_confirmation_reminders_unchanged(tmp_path, monkeypatch) -> None:
+def test_run_once_sends_non_confirmation_reminders_with_interaction_buttons(tmp_path, monkeypatch) -> None:
     settings = make_settings(tmp_path)
     sent = []
 
@@ -677,7 +809,58 @@ def test_run_once_keeps_non_confirmation_reminders_unchanged(tmp_path, monkeypat
     assert cli.run_once_cmd(settings, dry_run=False) == 0
     assert len(sent) == 1
     assert "분리수거" in sent[0][0]
-    assert sent[0][1] is None
+    assert sent[0][1]["inline_keyboard"][0][0]["text"] == "내놨음"
+    callback_data = sent[0][1]["inline_keyboard"][0][0]["callback_data"]
+    assert callback_data.startswith("interact:i-202605192000-")
+    assert callback_data.endswith(":done")
+    assert sent[0][1]["inline_keyboard"][0][1]["text"] == "나중에"
+    interaction_id = callback_data.split(":")[1]
+    interactions = InteractionStore(settings.state_dir / "interactions.json").list_items()
+    assert interactions[0]["interaction_id"] == interaction_id
+    assert interactions[0]["reminder_id"] == "trash-2026-05-19"
+    assert interactions[0]["selected_response"] is None
+    assert ConfirmationStore(settings.state_dir / "confirmations.json").pending_items() == []
+
+
+def test_run_once_sends_mac_status_with_checked_only_button(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    sent = []
+
+    class FixedDatetime(cli.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return kst_datetime("2026-05-16", "10:00")
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def send_message(self, text: str, reply_markup=None) -> None:
+            sent.append((text, reply_markup))
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+    assert len(sent) == 1
+    button = sent[0][1]["inline_keyboard"][0][0]
+    assert button["text"] == "확인했음"
+    assert button["callback_data"].startswith("interact:i-202605161000-")
+    assert button["callback_data"].endswith(":checked")
+
+
+def test_interaction_callback_data_stays_compact_for_long_custom_reminder_id() -> None:
+    reminder = cli.Reminder(
+        reminder_id="very-long-custom-reminder-id-that-would-overflow-telegram-callback-data-without-hashing",
+        scheduled_at=kst_datetime("2026-06-20", "09:30"),
+        title="긴 커스텀 알림",
+        message="긴 커스텀 알림",
+    )
+
+    keyboard = cli.interaction_keyboard(reminder)
+    for button in keyboard["inline_keyboard"][0]:
+        assert len(button["callback_data"].encode("utf-8")) <= 64
 
 
 def test_upcoming_reminders_lists_distributed_defaults() -> None:

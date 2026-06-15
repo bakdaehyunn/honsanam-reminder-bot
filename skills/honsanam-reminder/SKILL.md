@@ -97,18 +97,18 @@ honsanam-reminder run-once --dry-run
 honsanam-reminder run-once
 ```
 
-Use `--dry-run` for verification. Use non-dry-run only after explicit user approval; it can send Telegram messages and update `.local/state/sent.json` and `.local/state/confirmations.json`.
+Use `--dry-run` for verification. Use non-dry-run only after explicit user approval; it can send Telegram messages and update `.local/state/sent.json`, `.local/state/confirmations.json`, and `.local/state/interactions.json`.
 
 ### `poll-replies`
 
-Process Telegram Yes/No confirmation button replies:
+Process Telegram confirmation and lightweight interaction button replies:
 
 ```bash
 honsanam-reminder poll-replies
 honsanam-reminder poll-replies --watch
 ```
 
-Use one-shot mode when checking whether Telegram button answers have been applied. Use `--watch` for the launchd reply watcher; it uses Telegram long polling and keeps running so inline button loading clears quickly. This reads Telegram `getUpdates`, updates confirmation state, and answers callback queries.
+Use one-shot mode when checking whether Telegram button answers have been applied. Use `--watch` for the launchd reply watcher; it uses Telegram long polling and keeps running so inline button loading clears quickly. This reads Telegram `getUpdates`, updates confirmation or interaction state, and answers callback queries.
 
 ### `pending`
 
@@ -120,6 +120,17 @@ honsanam-reminder pending --json
 ```
 
 Use when the user asks what still needs confirmation.
+
+### `interactions`
+
+List stored lightweight interaction responses:
+
+```bash
+honsanam-reminder interactions
+honsanam-reminder interactions --json
+```
+
+Use when the user asks what routine buttons have been clicked. These records are for future stats and do not create follow-up reminders.
 
 ### `answer`
 
