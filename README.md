@@ -68,6 +68,9 @@ honsanam-reminder discover-chat
 honsanam-reminder preview --date 2026-06-01 --time 08:45
 honsanam-reminder next --days 14
 honsanam-reminder run-once --dry-run
+honsanam-reminder poll-replies
+honsanam-reminder pending
+honsanam-reminder answer haircut-booking-2026-06-07 yes
 honsanam-reminder run-once
 honsanam-reminder send-test
 ```
@@ -92,6 +95,21 @@ honsanam-reminder validate
 
 기본 생활 루틴은 켜기, 끄기, 일정 수정이 가능하며, 필요한 루틴은 커스텀 알림으로 추가해 관리할 수 있습니다.
 
+## Yes/No 확인 알림
+
+미용실 예약처럼 실제로 했는지 확인이 필요한 알림은 Telegram 메시지에 `Yes` / `No` 버튼이 함께 전송됩니다.
+
+`Yes`를 누르면 해당 미용실 예약 주기는 완료 처리되고, 더 이상 같은 예약 건을 묻지 않습니다. `No`를 누르거나 답하지 않으면 대기 상태로 남고, 7일 뒤 같은 요일과 시간에 다시 물어봅니다.
+
+수동으로 확인 상태를 보거나 처리할 수도 있습니다.
+
+```bash
+honsanam-reminder pending
+honsanam-reminder answer haircut-booking-2026-06-07 yes
+honsanam-reminder answer haircut-booking-2026-06-07 no
+honsanam-reminder poll-replies
+```
+
 ## AI 에이전트용 skill
 
 AI 에이전트가 CLI 명령어를 안정적으로 사용할 수 있도록 `skills/honsanam-reminder`에 Codex skill을 제공합니다.
@@ -105,4 +123,6 @@ scripts/install_launch_agent.sh
 scripts/uninstall_launch_agent.sh
 ```
 
-LaunchAgent는 5분마다 `honsanam-reminder run-once`를 실행합니다. 중복 알림 발송은 `.local/state/sent.json` 파일로 방지합니다.
+LaunchAgent는 5분마다 `scripts/run_launchd_once.sh`를 실행합니다. 이 스크립트는 Telegram Yes/No 응답을 먼저 확인한 뒤 `honsanam-reminder run-once`를 실행합니다.
+
+중복 알림 발송은 `.local/state/sent.json` 파일로 방지하고, Yes/No 확인 상태는 `.local/state/confirmations.json` 파일로 관리합니다.

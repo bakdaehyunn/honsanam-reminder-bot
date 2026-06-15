@@ -16,8 +16,7 @@ cat > "$PLIST" <<PLIST
   <string>com.hennei.honsanam-reminder-bot</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$ROOT/.venv/bin/honsanam-reminder</string>
-    <string>run-once</string>
+    <string>$ROOT/scripts/run_launchd_once.sh</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$ROOT</string>

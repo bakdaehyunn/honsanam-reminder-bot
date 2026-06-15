@@ -19,7 +19,17 @@ FIXED_IDS = {
     "weekend-cleaning",
 }
 FIXED_UPDATE_FIELDS = {
-    "haircut": {"enabled", "title", "action", "note", "time", "base_date"},
+    "haircut": {
+        "enabled",
+        "title",
+        "action",
+        "note",
+        "time",
+        "base_date",
+        "requires_confirmation",
+        "confirmation_prompt",
+        "followup_days",
+    },
     "fingernails": {"enabled", "title", "action", "note", "time", "base_date", "days"},
     "toenails": {"enabled", "title", "action", "note", "time", "base_date", "days"},
     "nose-hair": {"enabled", "title", "action", "note", "time", "base_date", "days"},
@@ -106,8 +116,10 @@ def validate_fixed_update(reminder_id: str, values: dict[str, object]) -> None:
         validate_date(str(values["base_date"]))
     if "days" in values:
         validate_days(int(values["days"]))
+    if "followup_days" in values:
+        validate_days(int(values["followup_days"]))
     if "weekday" in values:
         validate_weekday(str(values["weekday"]))
-    for key in ("title", "action", "note"):
+    for key in ("title", "action", "note", "confirmation_prompt"):
         if key in values and not str(values[key]).strip():
             raise ValidationError(f"{key} must not be empty")

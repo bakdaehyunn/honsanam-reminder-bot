@@ -107,6 +107,9 @@ base_date = "2026-05-10"
 interval_months = 1
 notify_time = "08:45"
 weekend_policy = "previous_sunday"
+requires_confirmation = true
+confirmation_prompt = "미용실 예약했나요?"
+followup_days = 7
 
 [nails]
 enabled = true

@@ -97,7 +97,39 @@ honsanam-reminder run-once --dry-run
 honsanam-reminder run-once
 ```
 
-Use `--dry-run` for verification. Use non-dry-run only after explicit user approval; it can send Telegram messages and update `.local/state/sent.json`.
+Use `--dry-run` for verification. Use non-dry-run only after explicit user approval; it can send Telegram messages and update `.local/state/sent.json` and `.local/state/confirmations.json`.
+
+### `poll-replies`
+
+Process Telegram Yes/No confirmation button replies:
+
+```bash
+honsanam-reminder poll-replies
+```
+
+Use before `run-once` in launchd or when checking whether Telegram button answers have been applied. This reads Telegram `getUpdates`, updates confirmation state, and answers callback queries.
+
+### `pending`
+
+List pending Yes/No confirmations:
+
+```bash
+honsanam-reminder pending
+honsanam-reminder pending --json
+```
+
+Use when the user asks what still needs confirmation.
+
+### `answer`
+
+Manually answer a confirmation:
+
+```bash
+honsanam-reminder answer haircut-booking-2026-06-07 yes
+honsanam-reminder answer haircut-booking-2026-06-07 no
+```
+
+Use as a fallback if Telegram buttons were missed. `yes` completes that confirmation cycle; `no` keeps it pending for the next follow-up.
 
 ### `send-test`
 
@@ -229,5 +261,6 @@ Verify delivery:
 
 1. Run `setup` for first setup or reconfiguration.
 2. Run `doctor`.
-3. Run `run-once --dry-run`.
-4. Ask for approval before `send-test` or `run-once`.
+3. Run `poll-replies`.
+4. Run `run-once --dry-run`.
+5. Ask for approval before `send-test` or `run-once`.

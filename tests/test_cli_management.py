@@ -4,6 +4,7 @@ import tomllib
 import pytest
 
 from life_reminder import cli
+from life_reminder.confirmations import ConfirmationStore
 from life_reminder.config import Settings, default_reminders_toml, load_env
 from life_reminder.rules import kst_datetime
 
@@ -300,6 +301,282 @@ def test_cli_show_uses_effective_fixed_config(tmp_path, monkeypatch, capsys) -> 
     assert '"time": "10:30"' in output
     assert '"action": "화장실 청소하기"' in output
     assert '"base_date": "2026-05-17"' in output
+
+
+def test_poll_replies_processes_yes_callback_and_stores_offset(tmp_path, monkeypatch, capsys) -> None:
+    settings = make_settings(tmp_path)
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    store.upsert_pending(
+        confirmation_id="haircut-booking-2026-06-07",
+        reminder_id="haircut-booking-2026-06-07",
+        title="미용실 예약",
+        message="message",
+        prompt="미용실 예약했나요?",
+        scheduled_at=kst_datetime("2026-06-01", "08:45"),
+        prompted_at=kst_datetime("2026-06-01", "08:45"),
+        followup_days=7,
+    )
+    answered_callbacks = []
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self, offset=None) -> dict[str, object]:
+            assert offset is None
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "update_id": 100,
+                        "callback_query": {
+                            "id": "cb-1",
+                            "data": "confirm:haircut-booking-2026-06-07:yes",
+                        },
+                    }
+                ],
+            }
+
+        def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+            answered_callbacks.append((callback_query_id, text))
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.poll_replies_cmd(settings) == 0
+    assert store.get("haircut-booking-2026-06-07")["status"] == "completed"
+    assert store.offset() == 101
+    assert answered_callbacks == [("cb-1", "완료 처리했습니다.")]
+    assert "answered haircut-booking-2026-06-07: yes" in capsys.readouterr().out
+
+
+def test_poll_replies_processes_no_callback_without_completion(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    store.upsert_pending(
+        confirmation_id="haircut-booking-2026-06-07",
+        reminder_id="haircut-booking-2026-06-07",
+        title="미용실 예약",
+        message="message",
+        prompt="미용실 예약했나요?",
+        scheduled_at=kst_datetime("2026-06-01", "08:45"),
+        prompted_at=kst_datetime("2026-06-01", "08:45"),
+        followup_days=7,
+    )
+    store.update_offset(101)
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def get_updates(self, offset=None) -> dict[str, object]:
+            assert offset == 101
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "update_id": 101,
+                        "callback_query": {
+                            "id": "cb-2",
+                            "data": "confirm:haircut-booking-2026-06-07:no",
+                        },
+                    }
+                ],
+            }
+
+        def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+            pass
+
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.poll_replies_cmd(settings) == 0
+    item = store.get("haircut-booking-2026-06-07")
+    assert item["status"] == "pending"
+    assert item["last_answer"] == "no"
+    assert store.offset() == 102
+
+
+def test_pending_and_answer_commands(tmp_path, capsys) -> None:
+    settings = make_settings(tmp_path)
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    store.upsert_pending(
+        confirmation_id="haircut-booking-2026-06-07",
+        reminder_id="haircut-booking-2026-06-07",
+        title="미용실 예약",
+        message="message",
+        prompt="미용실 예약했나요?",
+        scheduled_at=kst_datetime("2026-06-01", "08:45"),
+        prompted_at=kst_datetime("2026-06-01", "08:45"),
+        followup_days=7,
+    )
+
+    assert cli.pending_cmd(settings, json_output=False) == 0
+    assert "haircut-booking-2026-06-07" in capsys.readouterr().out
+
+    assert cli.answer_cmd(settings, "haircut-booking-2026-06-07", "yes") == 0
+    assert store.get("haircut-booking-2026-06-07")["status"] == "completed"
+
+
+def test_run_once_sends_haircut_confirmation_with_buttons(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    sent = []
+
+    class FixedDatetime(cli.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return kst_datetime("2026-06-01", "08:45")
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def send_message(self, text: str, reply_markup=None) -> None:
+            sent.append((text, reply_markup))
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+    assert len(sent) == 1
+    assert "미용실 예약했나요?" in sent[0][0]
+    assert sent[0][1]["inline_keyboard"][0][0]["callback_data"] == "confirm:haircut-booking-2026-06-07:yes"
+    assert ConfirmationStore(settings.state_dir / "confirmations.json").get("haircut-booking-2026-06-07")["status"] == "pending"
+
+
+def test_run_once_does_not_resend_pending_confirmation_before_followup(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    sent = []
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    store.upsert_pending(
+        confirmation_id="haircut-booking-2026-06-07",
+        reminder_id="haircut-booking-2026-06-07",
+        title="미용실 예약",
+        message="message",
+        prompt="미용실 예약했나요?",
+        scheduled_at=kst_datetime("2026-06-01", "08:45"),
+        prompted_at=kst_datetime("2026-06-01", "08:45"),
+        followup_days=7,
+    )
+
+    class FixedDatetime(cli.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return kst_datetime("2026-06-08", "08:40")
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def send_message(self, text: str, reply_markup=None) -> None:
+            sent.append((text, reply_markup))
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+    assert sent == []
+
+
+def test_run_once_resends_pending_confirmation_after_followup_days(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    sent = []
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    store.upsert_pending(
+        confirmation_id="haircut-booking-2026-06-07",
+        reminder_id="haircut-booking-2026-06-07",
+        title="미용실 예약",
+        message="message",
+        prompt="미용실 예약했나요?",
+        scheduled_at=kst_datetime("2026-06-01", "08:45"),
+        prompted_at=kst_datetime("2026-06-01", "08:45"),
+        followup_days=7,
+    )
+
+    class FixedDatetime(cli.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return kst_datetime("2026-06-08", "08:45")
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def send_message(self, text: str, reply_markup=None) -> None:
+            sent.append((text, reply_markup))
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+    assert len(sent) == 1
+    assert "미용실 예약했나요?" in sent[0][0]
+    assert store.get("haircut-booking-2026-06-07")["last_prompted_at"] == "2026-06-08T08:45:00+09:00"
+
+
+def test_run_once_suppresses_completed_confirmation_followup(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    sent = []
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    store.upsert_pending(
+        confirmation_id="haircut-booking-2026-06-07",
+        reminder_id="haircut-booking-2026-06-07",
+        title="미용실 예약",
+        message="message",
+        prompt="미용실 예약했나요?",
+        scheduled_at=kst_datetime("2026-06-01", "08:45"),
+        prompted_at=kst_datetime("2026-06-01", "08:45"),
+        followup_days=7,
+    )
+    store.mark_answer("haircut-booking-2026-06-07", "yes", kst_datetime("2026-06-01", "09:00"))
+
+    class FixedDatetime(cli.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return kst_datetime("2026-06-08", "08:45")
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def send_message(self, text: str, reply_markup=None) -> None:
+            sent.append((text, reply_markup))
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+    assert sent == []
+
+
+def test_run_once_keeps_non_confirmation_reminders_unchanged(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    sent = []
+
+    class FixedDatetime(cli.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return kst_datetime("2026-05-19", "20:00")
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def send_message(self, text: str, reply_markup=None) -> None:
+            sent.append((text, reply_markup))
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+    assert len(sent) == 1
+    assert "분리수거" in sent[0][0]
+    assert sent[0][1] is None
 
 
 def test_upcoming_reminders_lists_distributed_defaults() -> None:

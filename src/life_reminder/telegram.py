@@ -21,21 +21,33 @@ class TelegramClient:
     def get_me(self) -> dict[str, object]:
         return self._api("getMe", {})
 
-    def get_updates(self) -> dict[str, object]:
-        return self._api("getUpdates", {"limit": "100"})
+    def get_updates(self, offset: int | None = None) -> dict[str, object]:
+        params = {"limit": "100"}
+        if offset is not None:
+            params["offset"] = str(offset)
+        return self._api("getUpdates", params)
 
-    def send_message(self, text: str) -> None:
+    def send_message(self, text: str, reply_markup: dict[str, object] | None = None) -> None:
+        params = {
+            "chat_id": self.chat_id,
+            "text": text,
+            "disable_web_page_preview": "true",
+        }
+        if reply_markup is not None:
+            params["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
         self._api(
             "sendMessage",
-            {
-                "chat_id": self.chat_id,
-                "text": text,
-                "disable_web_page_preview": "true",
-            },
+            params,
             method="POST",
         )
 
-    def _api(self, method_name: str, params: dict[str, str], method: str = "GET") -> dict[str, object]:
+    def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+        params = {"callback_query_id": callback_query_id}
+        if text:
+            params["text"] = text
+        self._api("answerCallbackQuery", params, method="POST")
+
+    def _api(self, method_name: str, params: dict[str, object], method: str = "GET") -> dict[str, object]:
         if not self.token:
             raise RuntimeError("TELEGRAM_BOT_TOKEN is empty")
         url = f"https://api.telegram.org/bot{self.token}/{method_name}"

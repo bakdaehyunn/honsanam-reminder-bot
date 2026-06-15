@@ -70,6 +70,9 @@ def apply_fixed_overrides(config: dict[str, Any], fixed: dict[str, Any]) -> None
             apply_section(config.setdefault("haircut", {}), values)
             if "base_date" in values:
                 config["haircut"]["base_date"] = values["base_date"]
+            for key in ("requires_confirmation", "confirmation_prompt", "followup_days"):
+                if key in values:
+                    config["haircut"][key] = values[key]
         elif reminder_id in {"fingernails", "toenails"}:
             section = config.setdefault("nails", {})
             if "enabled" in values:
@@ -151,7 +154,13 @@ def fixed_effective_values(reminder_id: str, config: dict[str, Any] | None) -> d
         return {}
     if reminder_id == "haircut":
         section = config.get("haircut", {})
-        return section_values(section, "미용실 예약", "오늘 미용실 예약하기", "이번 주 가능한 시간 먼저 확인하기\n머리만 정리해도 인상이 꽤 달라집니다.")
+        return section_values(
+            section,
+            "미용실 예약",
+            "오늘 미용실 예약하기",
+            "이번 주 가능한 시간 먼저 확인하기\n머리만 정리해도 인상이 꽤 달라집니다.",
+            extra_keys=("base_date", "requires_confirmation", "confirmation_prompt", "followup_days"),
+        )
     if reminder_id == "trash":
         section = config.get("trash", {})
         return section_values(section, "분리수거", "오늘 분리수거 내놓기", "오늘 23:00쯤 수거 예정입니다.\n종량제 봉투와 음식물 봉투 여유분도 확인해 주세요.\n재활용품은 비우고 헹구면 뒤처리가 편합니다.", extra_keys=("weekdays",))

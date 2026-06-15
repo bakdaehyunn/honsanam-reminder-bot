@@ -9,6 +9,7 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from life_reminder.confirmations import ConfirmationStore, confirmation_due, parse_datetime
 from life_reminder.config import (
     DEFAULT_ENV_FILE,
     ROOT,
@@ -64,6 +65,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_run = sub.add_parser("run-once", help="Send reminders due now")
     p_run.add_argument("--dry-run", action="store_true")
+    sub.add_parser("poll-replies", help="Process Telegram Yes/No confirmation replies")
+    p_pending = sub.add_parser("pending", help="List pending confirmations")
+    p_pending.add_argument("--json", action="store_true")
+    p_answer = sub.add_parser("answer", help="Manually answer a pending confirmation")
+    p_answer.add_argument("confirmation_id")
+    p_answer.add_argument("answer", choices=["yes", "no"])
 
     sub.add_parser("send-test", help="Send one test message to the reminder chat")
     p_next = sub.add_parser("next", help="Show upcoming reminders")
@@ -145,6 +152,12 @@ def main(argv: list[str] | None = None) -> int:
         return preview_cmd(settings, args.date, args.time)
     if args.cmd == "run-once":
         return run_once_cmd(settings, dry_run=args.dry_run)
+    if args.cmd == "poll-replies":
+        return poll_replies_cmd(settings)
+    if args.cmd == "pending":
+        return pending_cmd(settings, json_output=args.json)
+    if args.cmd == "answer":
+        return answer_cmd(settings, args.confirmation_id, args.answer)
     if args.cmd == "send-test":
         return send_test_cmd(settings)
     if args.cmd == "next":
@@ -483,7 +496,26 @@ def run_once_cmd(settings: Settings, dry_run: bool) -> int:
     now = datetime.now(tz).replace(second=0, microsecond=0)
     reminders = due_reminders(now, config, mac_status_text=mac_status_if_needed(now, config), pattern=pattern)
     store = SentStore(settings.state_dir / "sent.json")
-    pending = [reminder for reminder in reminders if not store.has(reminder.sent_key)]
+    confirmation_store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    regular_pending: list[Reminder] = []
+    confirmation_pending: list[Reminder] = []
+    for reminder in reminders:
+        if is_confirmation_reminder(reminder, config):
+            item = confirmation_store.get(reminder.reminder_id)
+            if item is None:
+                confirmation_pending.append(reminder)
+            elif item.get("status") != "completed" and confirmation_due(item, now):
+                confirmation_pending.append(reminder_from_confirmation_item(item, now))
+            continue
+        if not store.has(reminder.sent_key):
+            regular_pending.append(reminder)
+    followup_pending = [
+        reminder_from_confirmation_item(item, now)
+        for item in confirmation_store.pending_items()
+        if confirmation_due(item, now)
+        and not any(reminder.reminder_id == item.get("confirmation_id") for reminder in confirmation_pending)
+    ]
+    pending = regular_pending + confirmation_pending + followup_pending
 
     if dry_run:
         if not pending:
@@ -497,12 +529,187 @@ def run_once_cmd(settings: Settings, dry_run: bool) -> int:
             print("Another run is already active.")
             return 0
         client = TelegramClient(settings.telegram_bot_token, settings.telegram_reminder_chat_id)
-        for reminder in pending:
+        for reminder in regular_pending:
             client.send_message(reminder.message)
             store.add(reminder.sent_key)
             print(f"sent {reminder.sent_key}")
+        for reminder in confirmation_pending:
+            send_confirmation_reminder(client, confirmation_store, reminder, config)
+            print(f"sent confirmation {reminder.reminder_id}")
+        for reminder in followup_pending:
+            send_confirmation_followup(client, confirmation_store, reminder)
+            print(f"sent confirmation {reminder.reminder_id}")
     if not pending:
         print("No reminders due.")
+    return 0
+
+
+def is_confirmation_reminder(reminder: Reminder, config: dict[str, object]) -> bool:
+    haircut = config.get("haircut", {})
+    return (
+        reminder.reminder_id.startswith("haircut-booking-")
+        and isinstance(haircut, dict)
+        and bool(haircut.get("requires_confirmation", False))
+    )
+
+
+def confirmation_prompt(config: dict[str, object]) -> str:
+    haircut = config.get("haircut", {})
+    if not isinstance(haircut, dict):
+        return "완료했나요?"
+    return str(haircut.get("confirmation_prompt") or "완료했나요?")
+
+
+def confirmation_followup_days(config: dict[str, object]) -> int:
+    haircut = config.get("haircut", {})
+    if not isinstance(haircut, dict):
+        return 7
+    return int(haircut.get("followup_days", 7))
+
+
+def confirmation_keyboard(confirmation_id: str) -> dict[str, object]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Yes", "callback_data": f"confirm:{confirmation_id}:yes"},
+                {"text": "No", "callback_data": f"confirm:{confirmation_id}:no"},
+            ]
+        ]
+    }
+
+
+def confirmation_message(message: str, prompt: str) -> str:
+    return f"{message}\n\n{prompt}"
+
+
+def send_confirmation_reminder(
+    client: TelegramClient,
+    store: ConfirmationStore,
+    reminder: Reminder,
+    config: dict[str, object],
+) -> None:
+    prompt = confirmation_prompt(config)
+    client.send_message(confirmation_message(reminder.message, prompt), reply_markup=confirmation_keyboard(reminder.reminder_id))
+    store.upsert_pending(
+        confirmation_id=reminder.reminder_id,
+        reminder_id=reminder.reminder_id,
+        title=reminder.title,
+        message=reminder.message,
+        prompt=prompt,
+        scheduled_at=reminder.scheduled_at,
+        prompted_at=reminder.scheduled_at,
+        followup_days=confirmation_followup_days(config),
+    )
+
+
+def send_confirmation_followup(client: TelegramClient, store: ConfirmationStore, reminder: Reminder) -> None:
+    item = store.get(reminder.reminder_id)
+    if item is None:
+        return
+    client.send_message(reminder.message, reply_markup=confirmation_keyboard(reminder.reminder_id))
+    store.upsert_pending(
+        confirmation_id=reminder.reminder_id,
+        reminder_id=str(item.get("reminder_id") or reminder.reminder_id),
+        title=reminder.title,
+        message=str(item.get("message") or reminder.message),
+        prompt=str(item.get("prompt") or "완료했나요?"),
+        scheduled_at=parse_datetime(str(item.get("scheduled_at"))),
+        prompted_at=reminder.scheduled_at,
+        followup_days=int(item.get("followup_days", 7)),
+    )
+
+
+def reminder_from_confirmation_item(item: dict[str, object], now: datetime) -> Reminder:
+    last_prompted_at = parse_datetime(str(item.get("last_prompted_at", "")))
+    due_at = last_prompted_at + timedelta(days=int(item.get("followup_days", 7)))
+    scheduled_at = due_at.astimezone(now.tzinfo) if due_at.tzinfo is not None and now.tzinfo is not None else due_at
+    title = str(item.get("title") or item.get("confirmation_id") or "확인 필요")
+    message = confirmation_message(str(item.get("message") or title), str(item.get("prompt") or "완료했나요?"))
+    return Reminder(
+        reminder_id=str(item.get("confirmation_id") or item.get("reminder_id")),
+        scheduled_at=scheduled_at,
+        title=title,
+        message=message,
+    )
+
+
+def poll_replies_cmd(settings: Settings) -> int:
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    client = TelegramClient(settings.telegram_bot_token, settings.telegram_reminder_chat_id)
+    try:
+        payload = client.get_updates(offset=store.offset())
+    except Exception as exc:
+        print(f"[FAIL] Telegram getUpdates failed: {exc}")
+        return 1
+    updates = payload.get("result", []) if isinstance(payload, dict) else []
+    if not isinstance(updates, list):
+        print("[FAIL] Telegram getUpdates returned invalid result")
+        return 1
+    handled = 0
+    now = datetime.now(ZoneInfo(settings.timezone)).replace(second=0, microsecond=0)
+    for update in updates:
+        if not isinstance(update, dict):
+            continue
+        update_id = update.get("update_id")
+        if isinstance(update_id, int):
+            store.update_offset_if_newer(update_id + 1)
+        callback = update.get("callback_query")
+        if not isinstance(callback, dict):
+            continue
+        callback_id = str(callback.get("id") or "")
+        data = str(callback.get("data") or "")
+        parsed = parse_confirmation_callback(data)
+        if parsed is None:
+            continue
+        confirmation_id, answer = parsed
+        try:
+            store.mark_answer(confirmation_id, answer, now)
+        except KeyError:
+            if callback_id:
+                client.answer_callback_query(callback_id, "알림을 찾을 수 없습니다.")
+            print(f"unknown confirmation: {confirmation_id}")
+            continue
+        if callback_id:
+            client.answer_callback_query(callback_id, "완료 처리했습니다." if answer == "yes" else "다음에 다시 물어볼게요.")
+        print(f"answered {confirmation_id}: {answer}")
+        handled += 1
+    if handled == 0:
+        print("No confirmation replies.")
+    return 0
+
+
+def parse_confirmation_callback(data: str) -> tuple[str, str] | None:
+    parts = data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "confirm" or parts[2] not in {"yes", "no"}:
+        return None
+    return parts[1], parts[2]
+
+
+def pending_cmd(settings: Settings, json_output: bool) -> int:
+    items = ConfirmationStore(settings.state_dir / "confirmations.json").pending_items()
+    if json_output:
+        print(json.dumps(items, ensure_ascii=False, indent=2))
+        return 0
+    if not items:
+        print("No pending confirmations.")
+        return 0
+    for item in items:
+        print(
+            f"{item.get('confirmation_id')}\t{item.get('status')}\t"
+            f"last_prompted={item.get('last_prompted_at')}\t{item.get('title')}"
+        )
+    return 0
+
+
+def answer_cmd(settings: Settings, confirmation_id: str, answer: str) -> int:
+    store = ConfirmationStore(settings.state_dir / "confirmations.json")
+    now = datetime.now(ZoneInfo(settings.timezone)).replace(second=0, microsecond=0)
+    try:
+        store.mark_answer(confirmation_id, answer, now)
+    except KeyError:
+        print(f"[FAIL] unknown confirmation: {confirmation_id}")
+        return 1
+    print(f"answered {confirmation_id}: {answer}")
     return 0
 
 
