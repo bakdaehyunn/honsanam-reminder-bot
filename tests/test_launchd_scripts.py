@@ -15,9 +15,9 @@ def test_install_launch_agent_writes_replies_and_sender_plists() -> None:
     assert "<key>KeepAlive</key>" in script
     assert "<true/>" in script
     assert "<string>run-once</string>" in script
-    assert "<key>StartCalendarInterval</key>" in script
-    assert "<key>StartInterval</key>" not in script
-    assert "<integer>300</integer>" not in script
+    assert "<key>StartInterval</key>" in script
+    assert "<integer>300</integer>" in script
+    assert "<key>StartCalendarInterval</key>" not in script
 
 
 def test_uninstall_launch_agent_removes_legacy_and_split_plists() -> None:

@@ -822,6 +822,72 @@ def test_run_once_sends_non_confirmation_reminders_with_interaction_buttons(tmp_
     assert ConfirmationStore(settings.state_dir / "confirmations.json").pending_items() == []
 
 
+def test_run_once_does_not_duplicate_send_when_sender_runs_repeatedly(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    sent = []
+
+    class FixedDatetime(cli.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return kst_datetime("2026-05-19", "20:00")
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def send_message(self, text: str, reply_markup=None) -> None:
+            sent.append((text, reply_markup))
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+
+    assert len(sent) == 1
+    assert "분리수거" in sent[0][0]
+
+
+def test_run_once_sends_custom_reminder_at_non_calendar_interval_time(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    sent = []
+
+    cli.add_custom(
+        settings.management_file,
+        {
+            "id": "take-vitamins",
+            "title": "비타민",
+            "kind": "weekly",
+            "weekday": "fri",
+            "time": "09:30",
+            "action": "비타민 챙기기",
+        },
+    )
+
+    class FixedDatetime(cli.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return kst_datetime("2026-05-22", "09:30")
+
+    class FakeTelegramClient:
+        def __init__(self, token: str, chat_id: str) -> None:
+            self.token = token
+            self.chat_id = chat_id
+
+        def send_message(self, text: str, reply_markup=None) -> None:
+            sent.append((text, reply_markup))
+
+    monkeypatch.setattr(cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(cli, "TelegramClient", FakeTelegramClient)
+
+    assert cli.run_once_cmd(settings, dry_run=False) == 0
+
+    assert len(sent) == 1
+    assert "비타민" in sent[0][0]
+    assert "비타민 챙기기" in sent[0][0]
+
+
 def test_run_once_sends_mac_status_with_checked_only_button(tmp_path, monkeypatch) -> None:
     settings = make_settings(tmp_path)
     sent = []

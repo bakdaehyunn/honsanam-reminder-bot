@@ -281,4 +281,5 @@ Verify launchd:
 
 1. Run `scripts/install_launch_agent.sh`.
 2. Confirm `com.hennei.honsanam-reminder-bot.replies` runs `poll-replies --watch` with `KeepAlive`.
-3. Confirm `com.hennei.honsanam-reminder-bot.sender` runs `run-once` with `StartCalendarInterval` at 08:45, 10:00, 14:00, 20:00, 20:30, and 21:00.
+3. Confirm `com.hennei.honsanam-reminder-bot.sender` runs `run-once` with `StartInterval=300`.
+4. Reminder time changes and custom reminder additions do not require editing launchd; `run-once` checks every 5 minutes and `.local/state/sent.json` prevents duplicate sends.

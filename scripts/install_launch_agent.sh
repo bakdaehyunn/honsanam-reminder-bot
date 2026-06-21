@@ -52,15 +52,8 @@ cat > "$SENDER_PLIST" <<PLIST
   </array>
   <key>WorkingDirectory</key>
   <string>$ROOT</string>
-  <key>StartCalendarInterval</key>
-  <array>
-    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>45</integer></dict>
-    <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>30</integer></dict>
-    <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
-  </array>
+  <key>StartInterval</key>
+  <integer>300</integer>
   <key>StandardOutPath</key>
   <string>$ROOT/.local/logs/sender.out</string>
   <key>StandardErrorPath</key>
